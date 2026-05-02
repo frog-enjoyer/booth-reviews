@@ -30,12 +30,9 @@ login?.addEventListener('click', () => {
 
   void startDiscordAuth()
     .then(({ url }) => {
-      browser.windows.create({
-        url,
-        type: 'popup',
-        width: 500,
-        height: 600,
-      });
+      // window.open sets window.opener on the callback page so postMessage works.
+      // browser.windows.create does not set window.opener.
+      window.open(url, '_blank', 'width=500,height=600,popup=1');
     })
     .catch((error: unknown) => {
       if (loginError) loginError.textContent = error instanceof Error ? error.message : 'Could not start Discord login.';
