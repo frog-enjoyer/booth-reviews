@@ -55,6 +55,28 @@
   padding: 1px 6px;
 }
 
+.booth-trust-review-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.booth-trust-vote-btn,
+.booth-trust-edit-btn,
+.booth-trust-delete-btn {
+  background: none;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  min-height: 28px;
+  padding: 2px 8px;
+}
+
+.booth-trust-delete-btn {
+  color: #cf222e;
+}
+
 .booth-trust-badge {
   border: 1px solid currentColor;
   border-radius: 999px;

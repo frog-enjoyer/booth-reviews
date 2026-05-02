@@ -5,10 +5,10 @@ compatibility_date = "2026-05-02"
 [[d1_databases]]
 binding = "DB"
 database_name = "booth-addon"
-database_id = "replace-with-d1-database-id"
+database_id = "02a95699-b205-40bf-919d-635f02fa2a6b"
 
 [vars]
 CORS_ALLOWED_BOOTH_ORIGINS = "https://booth.pm"
 CORS_ALLOWED_EXTENSION_ORIGINS = ""
-DISCORD_REDIRECT_URI = "http://localhost:8787/auth/discord/callback"
+DISCORD_REDIRECT_URI = "https://api.cflx.cc/auth/discord/callback"
 ADMIN_DISCORD_IDS = ""

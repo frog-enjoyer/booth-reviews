@@ -30,7 +30,7 @@ async function request<T>(path: string, init?: RequestInit & { auth?: boolean })
 }
 
 export function getItemSummary(itemId: string): Promise<ItemSummary> {
-  return request<ItemSummary>(`/items/${encodeURIComponent(itemId)}/summary`);
+  return request<ItemSummary>(`/items/${encodeURIComponent(itemId)}/summary`, { auth: true });
 }
 
 export function getItemSummaries(itemIds: string[]): Promise<BatchSummaryResponse> {

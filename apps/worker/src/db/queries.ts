@@ -66,21 +66,25 @@ export async function upsertSeenItem(db: D1Database, input: {
     .run();
 }
 
-export async function getItemSummary(db: D1Database, itemId: string): Promise<ItemSummary> {
-  const result = await db
+export async function getItemSummary(db: D1Database, itemId: string, viewerUserId?: string): Promise<ItemSummary> {
+  const row = await db
     .prepare(
-      `SELECT rating, COUNT(*) as count
+      `SELECT
+         SUM(CASE WHEN rating = 'up' THEN 1 ELSE 0 END) as upCount,
+         SUM(CASE WHEN rating = 'down' THEN 1 ELSE 0 END) as downCount,
+         MAX(CASE WHEN user_id = ? THEN id ELSE NULL END) as viewerReviewId
        FROM reviews
-       WHERE item_id = ? AND status = 'visible'
-       GROUP BY rating`,
+       WHERE item_id = ? AND status = 'visible'`,
     )
-    .bind(itemId)
-    .all<RatingCount>();
+    .bind(viewerUserId ?? '', itemId)
+    .first<{ upCount: number; downCount: number; viewerReviewId: string | null }>();
 
-  const upCount = result.results.find((row) => row.rating === 'up')?.count ?? 0;
-  const downCount = result.results.find((row) => row.rating === 'down')?.count ?? 0;
-
-  return createItemSummary({ itemId, upCount, downCount });
+  return createItemSummary({
+    itemId,
+    upCount: row?.upCount ?? 0,
+    downCount: row?.downCount ?? 0,
+    viewerReviewId: row?.viewerReviewId ?? undefined,
+  });
 }
 
 export async function getBatchSummaries(db: D1Database, itemIds: string[]): Promise<ItemSummary[]> {

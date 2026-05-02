@@ -11,7 +11,9 @@ export const itemsRoutes = new Hono<AppBindings>();
 
 itemsRoutes.get('/:itemId/summary', async (c) => {
   const itemId = c.req.param('itemId');
-  const summary = await getItemSummary(c.env.DB, itemId);
+  const token = getBearerToken(c.req.header('Authorization'));
+  const user = token ? await getSessionUser(c.env.DB, token) : null;
+  const summary = await getItemSummary(c.env.DB, itemId, user?.userId);
   return c.json(ok(summary));
 });
 
