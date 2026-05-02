@@ -2,10 +2,7 @@ import type { PurchaseState } from '@booth-addon/shared';
 
 const PURCHASED_PATTERNS = [
   /have bought/i,
-  /purchased/i,
-  /download/i,
   /購入済み/,
-  /購入履歴/,
   /ダウンロード/,
 ];
 
@@ -18,8 +15,9 @@ function visibleText(document: Document): string {
 export function detectPurchaseState(document: Document): PurchaseState {
   const text = visibleText(document);
 
-  if (PURCHASED_PATTERNS.some((pattern) => pattern.test(text))) return 'appears_purchased';
+  // Cart text is definitive proof the item is not yet purchased.
   if (CART_PATTERNS.some((pattern) => pattern.test(text))) return 'not_detected';
+  if (PURCHASED_PATTERNS.some((pattern) => pattern.test(text))) return 'appears_purchased';
 
   return 'unknown';
 }
