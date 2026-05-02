@@ -1,6 +1,6 @@
 # Booth Reviews
 
-A browser extension that adds community reviews and ratings to [Booth.pm](https://booth.pm) — the VRChat and VTuber asset marketplace.
+A browser extension that adds community reviews and ratings to [Booth.pm](https://booth.pm) — a popular VRChat asset marketplace.
 
 Booth has no built-in review system. This extension lets users rate and review items inline on listing pages, so the community can share honest feedback before buying.
 
@@ -11,12 +11,7 @@ Booth has no built-in review system. This extension lets users rate and review i
 - **Inline ratings** — 👍/👎 vote buttons injected next to the wishlist button on every listing
 - **Written reviews** — leave detailed feedback, visible to anyone with the extension
 - **Helpful votes** — upvote reviews you found useful
-- **Discord login** — sign in with Discord, no new account needed
-- **Pseudonymous** — public display names are generated automatically
-- **Japanese support** — EN and JA locales included
-- **Search & creator pages** — compact badges on item cards (in progress)
-
----
+- **Discord login** — sign in with Discord
 
 ## How it works
 
