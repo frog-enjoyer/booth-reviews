@@ -1,6 +1,7 @@
 name = "booth-addon-api"
 main = "src/index.ts"
 compatibility_date = "2026-05-02"
+account_id = "6846533d7c7c6509539a06eb396c8554"
 
 [[d1_databases]]
 binding = "DB"
