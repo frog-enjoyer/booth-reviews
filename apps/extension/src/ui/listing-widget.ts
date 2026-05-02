@@ -229,9 +229,11 @@ export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>
   const ratingBar = document.createElement('div');
   ratingBar.className = 'booth-trust-rating-bar-wrapper';
   ratingBar.textContent = '…';
-  const wishlistBtn = document.querySelector('#js-item-wishlist-button');
-  if (wishlistBtn) {
-    wishlistBtn.insertAdjacentElement('afterend', ratingBar);
+  const shareButtons = document.querySelector('#js-item-share-buttons');
+  if (shareButtons) {
+    shareButtons.insertAdjacentElement('beforebegin', ratingBar);
+  } else {
+    document.querySelector('#js-item-wishlist-button')?.insertAdjacentElement('afterend', ratingBar);
   }
 
   // Reviews + form — injected after the image gallery
