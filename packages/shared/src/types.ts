@@ -15,6 +15,7 @@ export type ItemSummary = {
   downCount: number;
   reviewCount: number;
   viewerReviewId?: string;
+  viewerRating?: 'up' | 'down';
 };
 
 export type Review = {

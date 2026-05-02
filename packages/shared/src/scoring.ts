@@ -17,6 +17,7 @@ export function createItemSummary(input: {
   upCount: number;
   downCount: number;
   viewerReviewId?: string;
+  viewerRating?: 'up' | 'down';
 }): ItemSummary {
   return {
     itemId: input.itemId,
@@ -25,5 +26,6 @@ export function createItemSummary(input: {
     downCount: input.downCount,
     reviewCount: input.upCount + input.downCount,
     viewerReviewId: input.viewerReviewId,
+    viewerRating: input.viewerRating,
   };
 }

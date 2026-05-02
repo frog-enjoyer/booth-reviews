@@ -27,7 +27,8 @@ const reviewFieldsSchema = z.object({
 });
 
 function hasValidNegativeBody(value: { rating: 'up' | 'down'; body: string }): boolean {
-  return value.rating !== 'down' || value.body.trim().length >= MIN_NEGATIVE_REVIEW_BODY_LENGTH;
+  const trimmed = value.body.trim();
+  return trimmed.length === 0 || value.rating !== 'down' || trimmed.length >= MIN_NEGATIVE_REVIEW_BODY_LENGTH;
 }
 
 export const reviewBodySchema = reviewFieldsSchema

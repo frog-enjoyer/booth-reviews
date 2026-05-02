@@ -31,6 +31,35 @@
   width: 100%;
 }
 
+.booth-trust-rating-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.booth-trust-rate-btn {
+  background: none;
+  border: 2px solid #d0d7de;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  min-height: 36px;
+  padding: 4px 14px;
+}
+
+.booth-trust-rate-btn.booth-trust-rate-active {
+  border-color: currentColor;
+  font-weight: 600;
+}
+
+.booth-trust-rate-up.booth-trust-rate-active {
+  color: #1a7f37;
+}
+
+.booth-trust-rate-down.booth-trust-rate-active {
+  color: #cf222e;
+}
+
 .booth-trust-review {
   border-top: 1px solid #d8dee4;
   margin-top: 10px;

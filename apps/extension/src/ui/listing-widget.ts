@@ -1,4 +1,4 @@
-import type { Review } from '@booth-addon/shared';
+import type { ItemSummary, Review } from '@booth-addon/shared';
 
 import { createReview, deleteReview, getItemReviews, getItemSummary, notifyItemSeen, updateReview, voteOnReview } from '../api/client';
 import { getSessionToken } from '../auth/session';
@@ -6,13 +6,60 @@ import type { BoothPage } from '../booth/detect-page';
 import { detectPurchaseState } from '../booth/purchase-state';
 import { createReviewTextarea } from './review-form';
 
+function renderRatingBar(
+  page: Extract<BoothPage, { kind: 'listing' }>,
+  summary: ItemSummary,
+  document: Document,
+  onRefresh: () => void,
+): HTMLElement {
+  const bar = document.createElement('div');
+  bar.className = 'booth-trust-rating-bar';
+
+  const upBtn = document.createElement('button');
+  upBtn.type = 'button';
+  upBtn.className = 'booth-trust-rate-btn booth-trust-rate-up' + (summary.viewerRating === 'up' ? ' booth-trust-rate-active' : '');
+  upBtn.textContent = `👍 ${summary.upCount}`;
+
+  const downBtn = document.createElement('button');
+  downBtn.type = 'button';
+  downBtn.className = 'booth-trust-rate-btn booth-trust-rate-down' + (summary.viewerRating === 'down' ? ' booth-trust-rate-active' : '');
+  downBtn.textContent = `👎 ${summary.downCount}`;
+
+  upBtn.addEventListener('click', () => {
+    void createReview({
+      itemId: page.itemId,
+      rating: 'up',
+      body: '',
+      lang: navigator.language.startsWith('ja') ? 'ja' : 'en',
+      purchaseState: detectPurchaseState(document),
+    })
+      .then(onRefresh)
+      .catch(() => undefined);
+  });
+
+  downBtn.addEventListener('click', () => {
+    void createReview({
+      itemId: page.itemId,
+      rating: 'down',
+      body: '',
+      lang: navigator.language.startsWith('ja') ? 'ja' : 'en',
+      purchaseState: detectPurchaseState(document),
+    })
+      .then(onRefresh)
+      .catch(() => undefined);
+  });
+
+  bar.append(upBtn, downBtn);
+  return bar;
+}
+
 export function renderReview(review: Review, document: Document, isOwner: boolean, onRefresh: () => void): HTMLElement {
   const article = document.createElement('article');
   article.className = 'booth-trust-review';
 
   const meta = document.createElement('p');
   meta.className = 'booth-trust-review-meta';
-  meta.textContent = `${review.rating === 'up' ? 'Up' : 'Down'} by ${review.authorName}`;
+  meta.textContent = `${review.rating === 'up' ? '👍' : '👎'} ${review.authorName}`;
 
   if (review.purchaseState === 'appears_purchased') {
     const badge = document.createElement('span');
@@ -23,7 +70,7 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
 
   const body = document.createElement('p');
   body.className = 'booth-trust-review-body';
-  body.textContent = review.body || '(No written review.)';
+  body.textContent = review.body;
 
   const actions = document.createElement('p');
   actions.className = 'booth-trust-review-actions';
@@ -33,9 +80,7 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
   helpfulBtn.className = 'booth-trust-vote-btn';
   helpfulBtn.textContent = `Helpful (${review.helpfulUp})`;
   helpfulBtn.addEventListener('click', () => {
-    void voteOnReview(review.id, { value: 1 })
-      .then(onRefresh)
-      .catch(() => undefined);
+    void voteOnReview(review.id, { value: 1 }).then(onRefresh).catch(() => undefined);
   });
 
   const unhelpfulBtn = document.createElement('button');
@@ -43,9 +88,7 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
   unhelpfulBtn.className = 'booth-trust-vote-btn';
   unhelpfulBtn.textContent = `Unhelpful (${review.helpfulDown})`;
   unhelpfulBtn.addEventListener('click', () => {
-    void voteOnReview(review.id, { value: -1 })
-      .then(onRefresh)
-      .catch(() => undefined);
+    void voteOnReview(review.id, { value: -1 }).then(onRefresh).catch(() => undefined);
   });
 
   actions.append(helpfulBtn, ' ', unhelpfulBtn);
@@ -86,9 +129,7 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
     deleteBtn.className = 'booth-trust-delete-btn';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', () => {
-      void deleteReview(review.id)
-        .then(onRefresh)
-        .catch(() => undefined);
+      void deleteReview(review.id).then(onRefresh).catch(() => undefined);
     });
 
     actions.append(' ', editBtn, ' ', deleteBtn);
@@ -98,62 +139,30 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
   return article;
 }
 
-function renderEmptyState(document: Document): HTMLElement {
-  const empty = document.createElement('p');
-  empty.className = 'booth-trust-empty';
-  empty.textContent = 'No community reviews yet. Bought this? Leave the first review.';
-  return empty;
-}
-
-function refreshReviews(
+async function renderWriteForm(
   page: Extract<BoothPage, { kind: 'listing' }>,
+  summary: ItemSummary,
   document: Document,
-  reviewsEl: HTMLElement,
-  statusEl: HTMLElement,
-): void {
-  void Promise.all([getItemSummary(page.itemId), getItemReviews(page.itemId)])
-    .then(([summary, response]) => {
-      statusEl.textContent = `${summary.label}: ${summary.upCount} up / ${summary.downCount} down (${summary.reviewCount} reviews)`;
-      const refresh = () => refreshReviews(page, document, reviewsEl, statusEl);
-      reviewsEl.replaceChildren(
-        ...(response.reviews.length > 0
-          ? response.reviews.map((review) =>
-              renderReview(review, document, review.id === summary.viewerReviewId, refresh),
-            )
-          : [renderEmptyState(document)]),
-      );
-    })
-    .catch(() => {
-      const unavailable = document.createElement('p');
-      unavailable.textContent = 'Reviews could not be loaded.';
-      reviewsEl.replaceChildren(unavailable);
-    });
-}
-
-async function renderReviewForm(page: Extract<BoothPage, { kind: 'listing' }>, document: Document, onRefresh: () => void): Promise<HTMLElement> {
+  onRefresh: () => void,
+): Promise<HTMLElement> {
   const token = await getSessionToken();
   const wrapper = document.createElement('div');
   wrapper.className = 'booth-trust-form';
 
   if (!token) {
     const prompt = document.createElement('p');
-    prompt.textContent = 'Sign in with Discord to review.';
+    prompt.textContent = 'Sign in with Discord to rate and review.';
     wrapper.append(prompt);
     return wrapper;
   }
 
-  const rating = document.createElement('select');
-  rating.className = 'booth-trust-rating';
-
-  const up = document.createElement('option');
-  up.value = 'up';
-  up.textContent = 'Up';
-
-  const down = document.createElement('option');
-  down.value = 'down';
-  down.textContent = 'Down';
-
-  rating.append(up, down);
+  if (!summary.viewerRating) {
+    const prompt = document.createElement('p');
+    prompt.className = 'booth-trust-form-message';
+    prompt.textContent = 'Rate the item above before writing a review.';
+    wrapper.append(prompt);
+    return wrapper;
+  }
 
   const textarea = createReviewTextarea(document);
   const message = document.createElement('p');
@@ -161,13 +170,13 @@ async function renderReviewForm(page: Extract<BoothPage, { kind: 'listing' }>, d
 
   const submit = document.createElement('button');
   submit.type = 'button';
-  submit.textContent = 'Submit review';
+  submit.textContent = 'Submit written review';
 
   submit.addEventListener('click', () => {
     message.textContent = 'Saving...';
     void createReview({
       itemId: page.itemId,
-      rating: rating.value === 'down' ? 'down' : 'up',
+      rating: summary.viewerRating!,
       body: textarea.value,
       lang: navigator.language.startsWith('ja') ? 'ja' : 'en',
       purchaseState: detectPurchaseState(document),
@@ -181,8 +190,33 @@ async function renderReviewForm(page: Extract<BoothPage, { kind: 'listing' }>, d
       });
   });
 
-  wrapper.append(rating, textarea, submit, message);
+  wrapper.append(textarea, submit, message);
   return wrapper;
+}
+
+function buildWidget(
+  page: Extract<BoothPage, { kind: 'listing' }>,
+  summary: ItemSummary,
+  writtenReviews: Review[],
+  document: Document,
+  ratingBarEl: HTMLElement,
+  reviewsEl: HTMLElement,
+  onRefresh: () => void,
+): void {
+  ratingBarEl.replaceChildren(renderRatingBar(page, summary, document, onRefresh));
+
+  if (writtenReviews.length > 0) {
+    reviewsEl.replaceChildren(
+      ...writtenReviews.map((review) =>
+        renderReview(review, document, review.id === summary.viewerReviewId, onRefresh),
+      ),
+    );
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'booth-trust-empty';
+    empty.textContent = 'No written reviews yet.';
+    reviewsEl.replaceChildren(empty);
+  }
 }
 
 export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>, document: Document): void {
@@ -192,41 +226,39 @@ export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>
     canonicalUrl: page.canonicalUrl,
     ...(page.creatorUrl ? { creatorId: page.creatorUrl, boothShopUrl: page.creatorUrl } : {}),
   }).catch(() => undefined);
+
   const container = document.createElement('section');
   container.className = 'booth-trust-widget';
 
   const title = document.createElement('strong');
   title.textContent = 'Community reviews';
 
-  const status = document.createElement('p');
-  status.textContent = 'Loading review signal...';
+  const ratingBar = document.createElement('div');
+  ratingBar.textContent = 'Loading...';
 
-  const reviews = document.createElement('div');
-  reviews.className = 'booth-trust-reviews';
+  const reviewsEl = document.createElement('div');
+  reviewsEl.className = 'booth-trust-reviews';
 
-  container.append(title, status, reviews);
+  const formEl = document.createElement('div');
+
+  container.append(title, ratingBar, reviewsEl, formEl);
 
   const target = document.querySelector('main') ?? document.body;
   target.prepend(container);
 
-  const refresh = () => refreshReviews(page, document, reviews, status);
+  function refresh(): void {
+    void Promise.all([getItemSummary(page.itemId), getItemReviews(page.itemId)])
+      .then(([summary, response]) => {
+        const writtenReviews = response.reviews.filter((r) => r.body.trim().length > 0);
+        buildWidget(page, summary, writtenReviews, document, ratingBar, reviewsEl, refresh);
+        void renderWriteForm(page, summary, document, refresh).then((form) => {
+          formEl.replaceChildren(form);
+        });
+      })
+      .catch(() => {
+        ratingBar.textContent = 'Community reviews unavailable right now.';
+      });
+  }
 
-  void Promise.all([getItemSummary(page.itemId), getItemReviews(page.itemId)])
-    .then(([summary, response]) => {
-      status.textContent = `${summary.label}: ${summary.upCount} up / ${summary.downCount} down (${summary.reviewCount} reviews)`;
-      reviews.replaceChildren(
-        ...(response.reviews.length > 0
-          ? response.reviews.map((review) =>
-              renderReview(review, document, review.id === summary.viewerReviewId, refresh),
-            )
-          : [renderEmptyState(document)]),
-      );
-    })
-    .catch(() => {
-      status.textContent = 'Community reviews unavailable right now.';
-    });
-
-  void renderReviewForm(page, document, refresh).then((form) => {
-    container.append(form);
-  });
+  refresh();
 }

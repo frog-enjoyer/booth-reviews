@@ -67,18 +67,20 @@ export async function getItemSummary(db: D1Database, itemId: string, viewerUserI
       `SELECT
          SUM(CASE WHEN rating = 'up' THEN 1 ELSE 0 END) as upCount,
          SUM(CASE WHEN rating = 'down' THEN 1 ELSE 0 END) as downCount,
-         MAX(CASE WHEN user_id = ? THEN id ELSE NULL END) as viewerReviewId
+         MAX(CASE WHEN user_id = ? THEN id ELSE NULL END) as viewerReviewId,
+         MAX(CASE WHEN user_id = ? THEN rating ELSE NULL END) as viewerRating
        FROM reviews
        WHERE item_id = ? AND status = 'visible'`,
     )
-    .bind(viewerUserId ?? '', itemId)
-    .first<{ upCount: number; downCount: number; viewerReviewId: string | null }>();
+    .bind(viewerUserId ?? '', viewerUserId ?? '', itemId)
+    .first<{ upCount: number; downCount: number; viewerReviewId: string | null; viewerRating: 'up' | 'down' | null }>();
 
   return createItemSummary({
     itemId,
     upCount: row?.upCount ?? 0,
     downCount: row?.downCount ?? 0,
     viewerReviewId: row?.viewerReviewId ?? undefined,
+    viewerRating: row?.viewerRating ?? undefined,
   });
 }
 
