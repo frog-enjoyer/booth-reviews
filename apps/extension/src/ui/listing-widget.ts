@@ -91,9 +91,11 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
     void voteOnReview(review.id, { value: -1 }).then(onRefresh).catch(() => undefined);
   });
 
-  if (!isOwner) {
-    actions.append(helpfulBtn, ' ', unhelpfulBtn);
+  if (isOwner) {
+    helpfulBtn.disabled = true;
+    unhelpfulBtn.disabled = true;
   }
+  actions.append(helpfulBtn, ' ', unhelpfulBtn);
 
   if (isOwner) {
     const editBtn = document.createElement('button');
