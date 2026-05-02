@@ -231,8 +231,7 @@ export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>
   ratingBar.textContent = '…';
   const wishlistBtn = document.querySelector('#js-item-wishlist-button');
   if (wishlistBtn) {
-    const flexRow = wishlistBtn.closest('.flex') ?? wishlistBtn.parentElement;
-    (flexRow ?? wishlistBtn).append(ratingBar);
+    wishlistBtn.insertAdjacentElement('afterend', ratingBar);
   }
 
   // Reviews + form — injected after the image gallery

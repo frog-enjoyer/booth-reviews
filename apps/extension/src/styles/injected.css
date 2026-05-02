@@ -31,10 +31,15 @@
   width: 100%;
 }
 
+.booth-trust-rating-bar-wrapper {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+}
+
 .booth-trust-rating-bar {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
 }
 
 .booth-trust-rate-btn {
