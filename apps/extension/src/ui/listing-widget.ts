@@ -199,12 +199,10 @@ function buildWidget(
   summary: ItemSummary,
   writtenReviews: Review[],
   document: Document,
-  ratingBarEl: HTMLElement,
+  _ratingBarEl: HTMLElement,
   reviewsEl: HTMLElement,
   onRefresh: () => void,
 ): void {
-  ratingBarEl.replaceChildren(renderRatingBar(page, summary, document, onRefresh));
-
   if (writtenReviews.length > 0) {
     reviewsEl.replaceChildren(
       ...writtenReviews.map((review) =>
@@ -227,28 +225,42 @@ export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>
     ...(page.creatorUrl ? { creatorId: page.creatorUrl, boothShopUrl: page.creatorUrl } : {}),
   }).catch(() => undefined);
 
-  const container = document.createElement('section');
-  container.className = 'booth-trust-widget';
+  // Rating bar — injected next to the wishlist (heart) button
+  const ratingBar = document.createElement('div');
+  ratingBar.className = 'booth-trust-rating-bar-wrapper';
+  ratingBar.textContent = '…';
+  const wishlistBtn = document.querySelector('.js-item-wishlist-button');
+  if (wishlistBtn) {
+    wishlistBtn.insertAdjacentElement('afterend', ratingBar);
+  }
+
+  // Reviews + form — injected after the image gallery
+  const reviewsContainer = document.createElement('section');
+  reviewsContainer.className = 'booth-trust-widget';
 
   const title = document.createElement('strong');
   title.textContent = 'Community reviews';
-
-  const ratingBar = document.createElement('div');
-  ratingBar.textContent = 'Loading...';
 
   const reviewsEl = document.createElement('div');
   reviewsEl.className = 'booth-trust-reviews';
 
   const formEl = document.createElement('div');
 
-  container.append(title, ratingBar, reviewsEl, formEl);
+  reviewsContainer.append(title, reviewsEl, formEl);
 
-  const target = document.querySelector('main') ?? document.body;
-  target.prepend(container);
+  const imageSection =
+    document.querySelector('.image-list.slick-slider') ??
+    document.querySelector('.primary-image-thumbnails');
+  if (imageSection) {
+    imageSection.insertAdjacentElement('afterend', reviewsContainer);
+  } else {
+    (document.querySelector('main') ?? document.body).prepend(reviewsContainer);
+  }
 
   function refresh(): void {
     void Promise.all([getItemSummary(page.itemId), getItemReviews(page.itemId)])
       .then(([summary, response]) => {
+        ratingBar.replaceChildren(renderRatingBar(page, summary, document, refresh));
         const writtenReviews = response.reviews.filter((r) => r.body.trim().length > 0);
         buildWidget(page, summary, writtenReviews, document, ratingBar, reviewsEl, refresh);
         void renderWriteForm(page, summary, document, refresh).then((form) => {
@@ -256,7 +268,7 @@ export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>
         });
       })
       .catch(() => {
-        ratingBar.textContent = 'Community reviews unavailable right now.';
+        ratingBar.textContent = '';
       });
   }
 
