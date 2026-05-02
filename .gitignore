@@ -10,5 +10,6 @@ coverage/
 !.env.example
 !.env.production
 *.md
+!README.md
 .gstack/
 .claude
