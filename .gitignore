@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.output/
+.wxt/
+.wrangler/
+coverage/
+*.local
+.env
+.env.*
+!.env.example
+*.md
+.gstack/

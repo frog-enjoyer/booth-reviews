@@ -1,0 +1,20 @@
+{
+  "name": "@booth-addon/extension",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wxt build",
+    "build:firefox": "wxt build --browser firefox",
+    "dev": "wxt",
+    "test": "vitest run",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip --browser firefox"
+  },
+  "dependencies": {
+    "@booth-addon/shared": "workspace:*",
+    "wxt": "^0.20.14"
+  },
+  "devDependencies": {}
+}

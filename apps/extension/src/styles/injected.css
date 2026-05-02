@@ -1,0 +1,65 @@
+.booth-trust-widget {
+  border: 1px solid #d8dee4;
+  border-radius: 10px;
+  box-sizing: border-box;
+  font: 14px/1.4 system-ui, sans-serif;
+  margin: 12px 0;
+  padding: 12px;
+}
+
+.booth-trust-widget p {
+  margin: 6px 0 0;
+}
+
+.booth-trust-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.booth-trust-form button,
+.booth-trust-form select,
+.booth-trust-review-textarea {
+  box-sizing: border-box;
+  min-height: 44px;
+}
+
+.booth-trust-review-textarea {
+  font: inherit;
+  padding: 8px;
+  resize: vertical;
+  width: 100%;
+}
+
+.booth-trust-review {
+  border-top: 1px solid #d8dee4;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.booth-trust-review-meta,
+.booth-trust-review-helpful {
+  color: #57606a;
+  font-size: 12px;
+}
+
+.booth-trust-review-body {
+  white-space: pre-wrap;
+}
+
+.booth-trust-purchase-badge {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+}
+
+.booth-trust-badge {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 12px;
+  margin-left: 6px;
+  padding: 2px 6px;
+}
