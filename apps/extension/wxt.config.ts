@@ -1,6 +1,9 @@
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
+  vite: () => ({
+    envPrefix: ['VITE_', 'PUBLIC_'],
+  }),
   manifest: {
     name: 'Booth Trust Layer',
     description: 'Community reviews inline on Booth.pm listings.',
