@@ -29,6 +29,26 @@ async function request<T>(path: string, init?: RequestInit & { auth?: boolean })
   return result.data;
 }
 
+export function notifyItemSeen(input: {
+  itemId: string;
+  boothUrl: string;
+  canonicalUrl: string;
+  creatorId?: string;
+  boothShopUrl?: string;
+}): Promise<{ saved: true }> {
+  return request<{ saved: true }>('/items/seen', {
+    method: 'POST',
+    body: JSON.stringify({
+      itemId: input.itemId,
+      boothUrl: input.boothUrl,
+      canonicalUrl: input.canonicalUrl,
+      ...(input.creatorId && input.boothShopUrl
+        ? { creator: { creatorId: input.creatorId, boothShopUrl: input.boothShopUrl } }
+        : {}),
+    }),
+  });
+}
+
 export function getItemSummary(itemId: string): Promise<ItemSummary> {
   return request<ItemSummary>(`/items/${encodeURIComponent(itemId)}/summary`, { auth: true });
 }

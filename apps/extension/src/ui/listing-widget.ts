@@ -1,6 +1,6 @@
 import type { Review } from '@booth-addon/shared';
 
-import { createReview, deleteReview, getItemReviews, getItemSummary, updateReview, voteOnReview } from '../api/client';
+import { createReview, deleteReview, getItemReviews, getItemSummary, notifyItemSeen, updateReview, voteOnReview } from '../api/client';
 import { getSessionToken } from '../auth/session';
 import type { BoothPage } from '../booth/detect-page';
 import { detectPurchaseState } from '../booth/purchase-state';
@@ -186,6 +186,12 @@ async function renderReviewForm(page: Extract<BoothPage, { kind: 'listing' }>, d
 }
 
 export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>, document: Document): void {
+  void notifyItemSeen({
+    itemId: page.itemId,
+    boothUrl: page.canonicalUrl,
+    canonicalUrl: page.canonicalUrl,
+    ...(page.creatorUrl ? { creatorId: page.creatorUrl, boothShopUrl: page.creatorUrl } : {}),
+  }).catch(() => undefined);
   const container = document.createElement('section');
   container.className = 'booth-trust-widget';
 
