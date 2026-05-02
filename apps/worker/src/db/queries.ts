@@ -1,10 +1,5 @@
 import { createItemSummary, type ItemSummary, type Review, type ReviewInput, type ReviewUpdateInput } from '@booth-addon/shared';
 
-type RatingCount = {
-  rating: 'up' | 'down';
-  count: number;
-};
-
 type ReviewRow = {
   id: string;
   itemId: string;
