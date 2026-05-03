@@ -1,4 +1,10 @@
-import { createItemSummary, type ItemSummary, type Review, type ReviewInput, type ReviewUpdateInput } from '@booth-addon/shared';
+import {
+  createItemSummary,
+  type ItemSummary,
+  type Review,
+  type ReviewInput,
+  type ReviewUpdateInput,
+} from '@booth-addon/shared';
 
 type ReviewRow = {
   id: string;
@@ -15,17 +21,20 @@ type ReviewRow = {
   updatedAt: string;
 };
 
-export async function upsertSeenItem(db: D1Database, input: {
-  itemId: string;
-  boothUrl: string;
-  canonicalUrl: string;
-  creator?: {
-    creatorId: string;
-    boothShopUrl: string;
-    displayName?: string;
-  };
-  unavailable?: boolean;
-}): Promise<void> {
+export async function upsertSeenItem(
+  db: D1Database,
+  input: {
+    itemId: string;
+    boothUrl: string;
+    canonicalUrl: string;
+    creator?: {
+      creatorId: string;
+      boothShopUrl: string;
+      displayName?: string;
+    };
+    unavailable?: boolean;
+  },
+): Promise<void> {
   if (input.creator) {
     await db
       .prepare(
@@ -36,7 +45,11 @@ export async function upsertSeenItem(db: D1Database, input: {
            display_name = excluded.display_name,
            last_seen_at = CURRENT_TIMESTAMP`,
       )
-      .bind(input.creator.creatorId, input.creator.boothShopUrl, input.creator.displayName ?? null)
+      .bind(
+        input.creator.creatorId,
+        input.creator.boothShopUrl,
+        input.creator.displayName ?? null,
+      )
       .run();
   }
 
@@ -61,7 +74,11 @@ export async function upsertSeenItem(db: D1Database, input: {
     .run();
 }
 
-export async function getItemSummary(db: D1Database, itemId: string, viewerUserId?: string): Promise<ItemSummary> {
+export async function getItemSummary(
+  db: D1Database,
+  itemId: string,
+  viewerUserId?: string,
+): Promise<ItemSummary> {
   const row = await db
     .prepare(
       `SELECT
@@ -73,7 +90,12 @@ export async function getItemSummary(db: D1Database, itemId: string, viewerUserI
        WHERE item_id = ? AND status = 'visible'`,
     )
     .bind(viewerUserId ?? '', viewerUserId ?? '', itemId)
-    .first<{ upCount: number; downCount: number; viewerReviewId: string | null; viewerRating: 'up' | 'down' | null }>();
+    .first<{
+      upCount: number;
+      downCount: number;
+      viewerReviewId: string | null;
+      viewerRating: 'up' | 'down' | null;
+    }>();
 
   return createItemSummary({
     itemId,
@@ -84,7 +106,10 @@ export async function getItemSummary(db: D1Database, itemId: string, viewerUserI
   });
 }
 
-export async function getBatchSummaries(db: D1Database, itemIds: string[]): Promise<ItemSummary[]> {
+export async function getBatchSummaries(
+  db: D1Database,
+  itemIds: string[],
+): Promise<ItemSummary[]> {
   if (itemIds.length === 0) return [];
 
   const placeholders = itemIds.map(() => '?').join(', ');
@@ -108,11 +133,19 @@ export async function getBatchSummaries(db: D1Database, itemIds: string[]): Prom
 
   return itemIds.map((itemId) => {
     const counts = countMap.get(itemId) ?? { up: 0, down: 0 };
-    return createItemSummary({ itemId, upCount: counts.up, downCount: counts.down });
+    return createItemSummary({
+      itemId,
+      upCount: counts.up,
+      downCount: counts.down,
+    });
   });
 }
 
-export async function getItemReviews(db: D1Database, itemId: string, viewerUserId?: string): Promise<Review[]> {
+export async function getItemReviews(
+  db: D1Database,
+  itemId: string,
+  viewerUserId?: string,
+): Promise<Review[]> {
   const result = await db
     .prepare(
       `SELECT
@@ -156,7 +189,11 @@ export async function getItemReviews(db: D1Database, itemId: string, viewerUserI
   }));
 }
 
-export async function upsertReview(db: D1Database, userId: string, input: ReviewInput): Promise<void> {
+export async function upsertReview(
+  db: D1Database,
+  userId: string,
+  input: ReviewInput,
+): Promise<void> {
   await db
     .prepare(
       `INSERT INTO reviews (id, item_id, user_id, rating, body, lang, purchase_state, status, updated_at)
@@ -170,24 +207,61 @@ export async function upsertReview(db: D1Database, userId: string, input: Review
          updated_at = CURRENT_TIMESTAMP,
          deleted_at = NULL`,
     )
-    .bind(crypto.randomUUID(), input.itemId, userId, input.rating, input.body, input.lang, input.purchaseState ?? 'unknown')
+    .bind(
+      crypto.randomUUID(),
+      input.itemId,
+      userId,
+      input.rating,
+      input.body,
+      input.lang,
+      input.purchaseState ?? 'unknown',
+    )
     .run();
 }
 
-export async function updateReview(db: D1Database, reviewId: string, userId: string, input: ReviewUpdateInput): Promise<boolean> {
+export async function hasUserReviewForItem(
+  db: D1Database,
+  userId: string,
+  itemId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT id FROM reviews WHERE user_id = ? AND item_id = ?')
+    .bind(userId, itemId)
+    .first<{ id: string }>();
+
+  return Boolean(row);
+}
+
+export async function updateReview(
+  db: D1Database,
+  reviewId: string,
+  userId: string,
+  input: ReviewUpdateInput,
+): Promise<boolean> {
   const result = await db
     .prepare(
       `UPDATE reviews
        SET rating = ?, body = ?, lang = ?, purchase_state = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND user_id = ? AND status = 'visible'`,
     )
-    .bind(input.rating, input.body, input.lang, input.purchaseState ?? 'unknown', reviewId, userId)
+    .bind(
+      input.rating,
+      input.body,
+      input.lang,
+      input.purchaseState ?? 'unknown',
+      reviewId,
+      userId,
+    )
     .run();
 
   return result.meta.changes > 0;
 }
 
-export async function softDeleteReview(db: D1Database, reviewId: string, userId: string): Promise<boolean> {
+export async function softDeleteReview(
+  db: D1Database,
+  reviewId: string,
+  userId: string,
+): Promise<boolean> {
   const result = await db
     .prepare(
       `UPDATE reviews
@@ -200,7 +274,12 @@ export async function softDeleteReview(db: D1Database, reviewId: string, userId:
   return result.meta.changes > 0;
 }
 
-export async function setReviewVote(db: D1Database, reviewId: string, userId: string, value: 1 | -1): Promise<'saved' | 'own_review'> {
+export async function setReviewVote(
+  db: D1Database,
+  reviewId: string,
+  userId: string,
+  value: 1 | -1,
+): Promise<'saved' | 'own_review'> {
   const ownReview = await db
     .prepare('SELECT id FROM reviews WHERE id = ? AND user_id = ?')
     .bind(reviewId, userId)

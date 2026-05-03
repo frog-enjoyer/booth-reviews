@@ -1,3 +1,7 @@
+import {
+  REPORTS_PER_DAY_LIMIT,
+  REVIEWS_PER_DAY_LIMIT,
+} from '@booth-addon/shared';
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from './index';
@@ -74,6 +78,7 @@ class FakeD1Database {
   private readonly users = new Map<string, TestUser>();
   private readonly sessions = new Map<string, TestSession>();
   private readonly reviews = new Map<string, TestReview>();
+  private readonly rateLimits = new Map<string, number>();
   private readonly votes: TestVote[] = [];
 
   prepare(sql: string): D1PreparedStatement {
@@ -123,6 +128,19 @@ class FakeD1Database {
         viewerReviewId: viewerReview?.id ?? null,
         viewerRating: viewerReview?.rating ?? null,
       } as T;
+    }
+
+    if (
+      sql.includes('SELECT id FROM reviews') &&
+      sql.includes('user_id = ?') &&
+      sql.includes('item_id = ?')
+    ) {
+      const userId = String(values[0]);
+      const itemId = String(values[1]);
+      const review = [...this.reviews.values()].find(
+        (entry) => entry.userId === userId && entry.itemId === itemId,
+      );
+      return review ? ({ id: review.id } as T) : null;
     }
 
     return null;
@@ -231,6 +249,20 @@ class FakeD1Database {
       return 1;
     }
 
+    if (sql.includes('INSERT INTO reports')) {
+      return 1;
+    }
+
+    if (sql.includes('INSERT INTO rate_limits')) {
+      const [key, bucket, limit] = values as [string, string, number];
+      const counterKey = `${key}:${bucket}`;
+      const count = this.rateLimits.get(counterKey) ?? 0;
+      if (count >= limit) return 0;
+
+      this.rateLimits.set(counterKey, count + 1);
+      return 1;
+    }
+
     return 0;
   }
 
@@ -265,6 +297,34 @@ async function createTestEnv(tokens: Record<string, TestUser>): Promise<Env> {
 
 function reviewer(userId: string, publicName: string): TestUser {
   return { userId, publicName, bannedAt: null, deletedAt: null };
+}
+
+function bannedUser(userId: string, publicName: string): TestUser {
+  return {
+    userId,
+    publicName,
+    bannedAt: '2026-01-01T00:00:00.000Z',
+    deletedAt: null,
+  };
+}
+
+async function postReport(
+  env: Env,
+  token: string,
+  body: { reviewId: string; reason: string },
+) {
+  return createApp().request(
+    '/reports',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
 }
 
 async function postReview(
@@ -434,6 +494,177 @@ describe('worker app', () => {
           },
         ],
       },
+    });
+  });
+
+  describe('security and abuse hardening', () => {
+    it('rejects logged-out review creation', async () => {
+      const env = await createTestEnv({});
+      const response = await createApp().request(
+        '/reviews',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itemId: 'item-1',
+            rating: 'up',
+            body: '',
+            lang: 'en',
+          }),
+        },
+        env,
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects banned user review creation', async () => {
+      const env = await createTestEnv({
+        token: bannedUser('banned-rv', 'Banned'),
+      });
+      const response = await postReview(env, 'token', {
+        itemId: 'item-1',
+        rating: 'up',
+        body: '',
+        lang: 'en',
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects review body exceeding 2000 characters', async () => {
+      const env = await createTestEnv({
+        token: reviewer('user-body', 'Reviewer'),
+      });
+      const response = await postReview(env, 'token', {
+        itemId: 'item-1',
+        rating: 'up',
+        body: 'a'.repeat(2001),
+        lang: 'en',
+      });
+      expect(response.status).toBe(400);
+    });
+
+    it('rejects public name update exceeding 40 characters', async () => {
+      const env = await createTestEnv({
+        token: reviewer('user-name', 'Reviewer'),
+      });
+      const response = await createApp().request(
+        '/me',
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: 'Bearer token',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ publicName: 'a'.repeat(41) }),
+        },
+        env,
+      );
+      expect(response.status).toBe(400);
+    });
+
+    it('handles duplicate review submission without creating duplicates', async () => {
+      const env = await createTestEnv({
+        token: reviewer('user-dup', 'Reviewer'),
+      });
+      const review = {
+        itemId: 'item-dup',
+        rating: 'up' as const,
+        body: '',
+        lang: 'en' as const,
+      };
+
+      const first = await postReview(env, 'token', review);
+      const second = await postReview(env, 'token', review);
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+
+      const reviewsResponse = await createApp().request(
+        '/items/item-dup/reviews',
+        {},
+        env,
+      );
+      const data = (await reviewsResponse.json()) as {
+        data: { reviews: unknown[] };
+      };
+      expect(data.data.reviews).toHaveLength(1);
+    });
+
+    it('rejects logged-out report creation', async () => {
+      const env = await createTestEnv({});
+      const response = await createApp().request(
+        '/reports',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reviewId: 'r-1', reason: 'spam' }),
+        },
+        env,
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects banned user report creation', async () => {
+      const env = await createTestEnv({
+        token: bannedUser('banned-rp', 'Banned'),
+      });
+      const response = await postReport(env, 'token', {
+        reviewId: 'r-1',
+        reason: 'spam',
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('rate limits review creation per user per day', async () => {
+      const env = await createTestEnv({
+        token: reviewer('user-rl-rv', 'Rate Tester'),
+      });
+      const review = {
+        itemId: 'item-rl',
+        rating: 'up' as const,
+        body: '',
+        lang: 'en' as const,
+      };
+
+      for (let i = 0; i < REVIEWS_PER_DAY_LIMIT; i++) {
+        const res = await postReview(env, 'token', {
+          ...review,
+          itemId: `item-rl-${i}`,
+        });
+        expect(res.status).toBe(200);
+      }
+
+      const updateExisting = await postReview(env, 'token', {
+        ...review,
+        itemId: 'item-rl-0',
+        body: 'Adding text later.',
+      });
+      expect(updateExisting.status).toBe(200);
+
+      const blocked = await postReview(env, 'token', {
+        ...review,
+        itemId: 'item-rl-over',
+      });
+      expect(blocked.status).toBe(429);
+    });
+
+    it('rate limits report creation per user per day', async () => {
+      const env = await createTestEnv({
+        token: reviewer('user-rl-rp', 'Rate Tester'),
+      });
+
+      for (let i = 0; i < REPORTS_PER_DAY_LIMIT; i++) {
+        const res = await postReport(env, 'token', {
+          reviewId: `r-${i}`,
+          reason: 'spam',
+        });
+        expect(res.status).toBe(200);
+      }
+
+      const blocked = await postReport(env, 'token', {
+        reviewId: 'r-over',
+        reason: 'spam',
+      });
+      expect(blocked.status).toBe(429);
     });
   });
 });
