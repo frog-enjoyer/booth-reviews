@@ -1,9 +1,18 @@
 import type { ItemSummary, Review } from '@booth-addon/shared';
 
-import { createReview, deleteReview, getItemReviews, getItemSummary, notifyItemSeen, updateReview, voteOnReview } from '../api/client';
+import {
+  createReview,
+  deleteReview,
+  getItemReviews,
+  getItemSummary,
+  notifyItemSeen,
+  updateReview,
+  voteOnReview,
+} from '../api/client';
 import { getSessionToken } from '../auth/session';
 import type { BoothPage } from '../booth/detect-page';
 import { detectPurchaseState } from '../booth/purchase-state';
+import { createReportButton } from './report-dialog';
 import { createReviewTextarea } from './review-form';
 
 function renderRatingBar(
@@ -17,12 +26,16 @@ function renderRatingBar(
 
   const upBtn = document.createElement('button');
   upBtn.type = 'button';
-  upBtn.className = 'booth-trust-rate-btn booth-trust-rate-up' + (summary.viewerRating === 'up' ? ' booth-trust-rate-active' : '');
+  upBtn.className =
+    'booth-trust-rate-btn booth-trust-rate-up' +
+    (summary.viewerRating === 'up' ? ' booth-trust-rate-active' : '');
   upBtn.textContent = `👍 ${summary.upCount}`;
 
   const downBtn = document.createElement('button');
   downBtn.type = 'button';
-  downBtn.className = 'booth-trust-rate-btn booth-trust-rate-down' + (summary.viewerRating === 'down' ? ' booth-trust-rate-active' : '');
+  downBtn.className =
+    'booth-trust-rate-btn booth-trust-rate-down' +
+    (summary.viewerRating === 'down' ? ' booth-trust-rate-active' : '');
   downBtn.textContent = `👎 ${summary.downCount}`;
 
   upBtn.addEventListener('click', () => {
@@ -53,7 +66,12 @@ function renderRatingBar(
   return bar;
 }
 
-export function renderReview(review: Review, document: Document, isOwner: boolean, onRefresh: () => void): HTMLElement {
+export function renderReview(
+  review: Review,
+  document: Document,
+  isOwner: boolean,
+  onRefresh: () => void,
+): HTMLElement {
   const article = document.createElement('article');
   article.className = 'booth-trust-review';
 
@@ -72,7 +90,7 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
   body.className = 'booth-trust-review-body';
   body.textContent = review.body;
 
-  const actions = document.createElement('p');
+  const actions = document.createElement('div');
   actions.className = 'booth-trust-review-actions';
 
   const helpfulBtn = document.createElement('button');
@@ -80,7 +98,9 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
   helpfulBtn.className = 'booth-trust-vote-btn';
   helpfulBtn.textContent = `Helpful (${review.helpfulUp})`;
   helpfulBtn.addEventListener('click', () => {
-    void voteOnReview(review.id, { value: 1 }).then(onRefresh).catch(() => undefined);
+    void voteOnReview(review.id, { value: 1 })
+      .then(onRefresh)
+      .catch(() => undefined);
   });
 
   const unhelpfulBtn = document.createElement('button');
@@ -88,7 +108,9 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
   unhelpfulBtn.className = 'booth-trust-vote-btn';
   unhelpfulBtn.textContent = `Unhelpful (${review.helpfulDown})`;
   unhelpfulBtn.addEventListener('click', () => {
-    void voteOnReview(review.id, { value: -1 }).then(onRefresh).catch(() => undefined);
+    void voteOnReview(review.id, { value: -1 })
+      .then(onRefresh)
+      .catch(() => undefined);
   });
 
   if (isOwner) {
@@ -122,7 +144,8 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
             setTimeout(onRefresh, 800);
           })
           .catch((error: unknown) => {
-            msg.textContent = error instanceof Error ? error.message : 'Update failed.';
+            msg.textContent =
+              error instanceof Error ? error.message : 'Update failed.';
           });
       });
       article.replaceChildren(meta, body, textarea, saveBtn, msg);
@@ -133,10 +156,14 @@ export function renderReview(review: Review, document: Document, isOwner: boolea
     deleteBtn.className = 'booth-trust-delete-btn';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', () => {
-      void deleteReview(review.id).then(onRefresh).catch(() => undefined);
+      void deleteReview(review.id)
+        .then(onRefresh)
+        .catch(() => undefined);
     });
 
     actions.append(' ', editBtn, ' ', deleteBtn);
+  } else {
+    actions.append(' ', createReportButton(document, review.id));
   }
 
   article.append(meta, body, actions);
@@ -190,7 +217,8 @@ async function renderWriteForm(
         setTimeout(onRefresh, 800);
       })
       .catch((error: unknown) => {
-        message.textContent = error instanceof Error ? error.message : 'Review failed to save.';
+        message.textContent =
+          error instanceof Error ? error.message : 'Review failed to save.';
       });
   });
 
@@ -210,7 +238,12 @@ function buildWidget(
   if (writtenReviews.length > 0) {
     reviewsEl.replaceChildren(
       ...writtenReviews.map((review) =>
-        renderReview(review, document, review.id === summary.viewerReviewId, onRefresh),
+        renderReview(
+          review,
+          document,
+          review.id === summary.viewerReviewId,
+          onRefresh,
+        ),
       ),
     );
   } else {
@@ -221,12 +254,17 @@ function buildWidget(
   }
 }
 
-export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>, document: Document): void {
+export function mountListingWidget(
+  page: Extract<BoothPage, { kind: 'listing' }>,
+  document: Document,
+): void {
   void notifyItemSeen({
     itemId: page.itemId,
     boothUrl: page.canonicalUrl,
     canonicalUrl: page.canonicalUrl,
-    ...(page.creatorUrl ? { creatorId: page.creatorUrl, boothShopUrl: page.creatorUrl } : {}),
+    ...(page.creatorUrl
+      ? { creatorId: page.creatorUrl, boothShopUrl: page.creatorUrl }
+      : {}),
   }).catch(() => undefined);
 
   // Rating bar — injected next to the wishlist (heart) button
@@ -237,7 +275,9 @@ export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>
   if (shareButtons) {
     shareButtons.insertAdjacentElement('beforebegin', ratingBar);
   } else {
-    document.querySelector('#js-item-wishlist-button')?.insertAdjacentElement('afterend', ratingBar);
+    document
+      .querySelector('#js-item-wishlist-button')
+      ?.insertAdjacentElement('afterend', ratingBar);
   }
 
   // Reviews + form — injected after the image gallery
@@ -266,9 +306,21 @@ export function mountListingWidget(page: Extract<BoothPage, { kind: 'listing' }>
   function refresh(): void {
     void Promise.all([getItemSummary(page.itemId), getItemReviews(page.itemId)])
       .then(([summary, response]) => {
-        ratingBar.replaceChildren(renderRatingBar(page, summary, document, refresh));
-        const writtenReviews = response.reviews.filter((r) => r.body.trim().length > 0);
-        buildWidget(page, summary, writtenReviews, document, ratingBar, reviewsEl, refresh);
+        ratingBar.replaceChildren(
+          renderRatingBar(page, summary, document, refresh),
+        );
+        const writtenReviews = response.reviews.filter(
+          (r) => r.body.trim().length > 0,
+        );
+        buildWidget(
+          page,
+          summary,
+          writtenReviews,
+          document,
+          ratingBar,
+          reviewsEl,
+          refresh,
+        );
         void renderWriteForm(page, summary, document, refresh).then((form) => {
           formEl.replaceChildren(form);
         });

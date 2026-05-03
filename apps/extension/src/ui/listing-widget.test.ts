@@ -74,6 +74,7 @@ describe('renderReview', () => {
 
     expect(element.textContent).toContain('Helpful (2)');
     expect(element.textContent).toContain('Unhelpful (1)');
+    expect(element.textContent).toContain('Report');
   });
 
   it('renders edit and delete buttons for owner', () => {
@@ -98,5 +99,6 @@ describe('renderReview', () => {
 
     expect(element.textContent).toContain('Edit');
     expect(element.textContent).toContain('Delete');
+    expect(element.textContent).not.toContain('Report');
   });
 });

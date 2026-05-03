@@ -2,12 +2,15 @@ import { SESSION_TOKEN_BYTES, SESSION_TTL_DAYS } from '@booth-addon/shared';
 
 export type SessionUser = {
   userId: string;
+  discordId: string;
   publicName: string;
   bannedAt: string | null;
 };
 
 function toHex(buffer: ArrayBuffer): string {
-  return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return [...new Uint8Array(buffer)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 export async function hashSessionToken(token: string): Promise<string> {
@@ -33,11 +36,14 @@ export function getBearerToken(header: string | undefined): string | null {
   return header.slice('Bearer '.length).trim() || null;
 }
 
-export async function getSessionUser(db: D1Database, token: string): Promise<SessionUser | null> {
+export async function getSessionUser(
+  db: D1Database,
+  token: string,
+): Promise<SessionUser | null> {
   const tokenHash = await hashSessionToken(token);
   const row = await db
     .prepare(
-      `SELECT users.user_id as userId, users.public_name as publicName, users.banned_at as bannedAt
+      `SELECT users.user_id as userId, users.discord_id as discordId, users.public_name as publicName, users.banned_at as bannedAt
        FROM sessions
        JOIN users ON users.user_id = sessions.user_id
        WHERE sessions.token_hash = ?
@@ -51,7 +57,10 @@ export async function getSessionUser(db: D1Database, token: string): Promise<Ses
   return row ?? null;
 }
 
-export async function createSession(db: D1Database, userId: string): Promise<string> {
+export async function createSession(
+  db: D1Database,
+  userId: string,
+): Promise<string> {
   const token = createSessionToken();
   const tokenHash = await hashSessionToken(token);
 
@@ -66,7 +75,10 @@ export async function createSession(db: D1Database, userId: string): Promise<str
   return token;
 }
 
-export async function revokeSession(db: D1Database, token: string): Promise<void> {
+export async function revokeSession(
+  db: D1Database,
+  token: string,
+): Promise<void> {
   const tokenHash = await hashSessionToken(token);
   await db
     .prepare(

@@ -10,6 +10,7 @@ import type { Env } from './types';
 
 type TestUser = {
   userId: string;
+  discordId?: string;
   publicName: string;
   bannedAt: string | null;
   deletedAt: string | null;
@@ -40,6 +41,18 @@ type TestVote = {
   reviewId: string;
   userId: string;
   value: 1 | -1;
+};
+
+type TestReport = {
+  id: string;
+  reviewId: string;
+  reporterId: string;
+  reason: string;
+  details: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  resolution: string | null;
 };
 
 class FakeStatement {
@@ -78,6 +91,8 @@ class FakeD1Database {
   private readonly users = new Map<string, TestUser>();
   private readonly sessions = new Map<string, TestSession>();
   private readonly reviews = new Map<string, TestReview>();
+  private readonly reports = new Map<string, TestReport>();
+  private readonly moderationActions: unknown[] = [];
   private readonly rateLimits = new Map<string, number>();
   private readonly votes: TestVote[] = [];
 
@@ -97,6 +112,14 @@ class FakeD1Database {
     this.reviews.set(review.id, { ...review });
   }
 
+  addReport(report: TestReport) {
+    this.reports.set(report.id, { ...report });
+  }
+
+  moderationActionCount() {
+    return this.moderationActions.length;
+  }
+
   first<T>(sql: string, values: unknown[]): T | null {
     if (sql.includes('FROM sessions')) {
       const tokenHash = String(values[0]);
@@ -113,6 +136,7 @@ class FakeD1Database {
 
       return {
         userId: user.userId,
+        discordId: user.discordId ?? user.userId,
         publicName: user.publicName,
         bannedAt: user.bannedAt,
       } as T;
@@ -155,7 +179,9 @@ class FakeD1Database {
       const reviewId = String(values[0]);
       const userId = String(values[1]);
       const review = this.reviews.get(reviewId);
-      return review && review.userId === userId ? ({ id: review.id } as T) : null;
+      return review && review.userId === userId
+        ? ({ id: review.id } as T)
+        : null;
     }
 
     return null;
@@ -217,6 +243,32 @@ class FakeD1Database {
         }) as T[];
     }
 
+    if (
+      sql.includes('FROM reports') &&
+      sql.includes('reports.resolved_at IS NULL')
+    ) {
+      return [...this.reports.values()]
+        .filter((report) => report.resolvedAt === null)
+        .map((report) => {
+          const review = this.reviews.get(report.reviewId);
+          const reporter = this.users.get(report.reporterId);
+          const author = review ? this.users.get(review.userId) : undefined;
+          return {
+            id: report.id,
+            reviewId: report.reviewId,
+            reporterId: report.reporterId,
+            reporterName: reporter?.publicName ?? null,
+            reason: report.reason,
+            details: report.details,
+            createdAt: report.createdAt,
+            itemId: review?.itemId ?? null,
+            reviewBody: review?.body ?? null,
+            reviewAuthorId: review?.userId ?? null,
+            reviewAuthorName: author?.publicName ?? null,
+          };
+        }) as T[];
+    }
+
     return [];
   }
 
@@ -265,6 +317,24 @@ class FakeD1Database {
     }
 
     if (sql.includes('INSERT INTO reports')) {
+      const [id, reviewId, reporterId, reason, details] = values as [
+        string,
+        string,
+        string,
+        string,
+        string | null,
+      ];
+      this.reports.set(id, {
+        id,
+        reviewId,
+        reporterId,
+        reason,
+        details,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+        resolvedBy: null,
+        resolution: null,
+      });
       return 1;
     }
 
@@ -288,7 +358,41 @@ class FakeD1Database {
       return 1;
     }
 
-    if (sql.includes('UPDATE reviews') && sql.includes("SET status = 'deleted'")) {
+    if (
+      sql.includes('UPDATE reports') &&
+      sql.includes('SET resolved_at = CURRENT_TIMESTAMP')
+    ) {
+      const [moderatorUserId, resolution, reportId] = values as [
+        string,
+        string,
+        string,
+      ];
+      const report = this.reports.get(reportId);
+      if (!report || report.resolvedAt) return 0;
+      report.resolvedAt = new Date().toISOString();
+      report.resolvedBy = moderatorUserId;
+      report.resolution = resolution;
+      return 1;
+    }
+
+    if (
+      sql.includes('UPDATE reviews') &&
+      sql.includes("SET status = 'deleted'") &&
+      !sql.includes('user_id = ?')
+    ) {
+      const [reviewId] = values as [string];
+      const review = this.reviews.get(reviewId);
+      if (!review || review.status !== 'visible') return 0;
+      review.status = 'deleted';
+      review.deletedAt = new Date().toISOString();
+      review.updatedAt = new Date().toISOString();
+      return 1;
+    }
+
+    if (
+      sql.includes('UPDATE reviews') &&
+      sql.includes("SET status = 'deleted'")
+    ) {
       const [reviewId, userId] = values as [string, string];
       const review = this.reviews.get(reviewId);
       if (!review || review.userId !== userId || review.status !== 'visible')
@@ -296,6 +400,22 @@ class FakeD1Database {
       review.status = 'deleted';
       review.deletedAt = new Date().toISOString();
       review.updatedAt = new Date().toISOString();
+      return 1;
+    }
+
+    if (
+      sql.includes('UPDATE users') &&
+      sql.includes('SET banned_at = CURRENT_TIMESTAMP')
+    ) {
+      const [userId] = values as [string];
+      const user = this.users.get(userId);
+      if (!user || user.bannedAt || user.deletedAt) return 0;
+      user.bannedAt = new Date().toISOString();
+      return 1;
+    }
+
+    if (sql.includes('INSERT INTO moderation_actions')) {
+      this.moderationActions.push(values);
       return 1;
     }
 
@@ -393,7 +513,11 @@ async function postReport(
   );
 }
 
-function seededReview(id: string, userId: string, itemId = 'item-1'): TestReview {
+function seededReview(
+  id: string,
+  userId: string,
+  itemId = 'item-1',
+): TestReview {
   const now = new Date().toISOString();
   return {
     id,
@@ -408,6 +532,51 @@ function seededReview(id: string, userId: string, itemId = 'item-1'): TestReview
     updatedAt: now,
     deletedAt: null,
   };
+}
+
+function seededReport(
+  id: string,
+  reviewId: string,
+  reporterId: string,
+): TestReport {
+  return {
+    id,
+    reviewId,
+    reporterId,
+    reason: 'spam',
+    details: 'Looks fake.',
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+    resolvedBy: null,
+    resolution: null,
+  };
+}
+
+async function createAdminTestEnv(): Promise<[Env, FakeD1Database]> {
+  const admin = reviewer('admin-user', 'Admin');
+  admin.discordId = 'admin-discord';
+  const [env, db] = await createTestEnvWithDb({ adminToken: admin });
+  return [{ ...env, ADMIN_DISCORD_IDS: 'admin-discord' }, db];
+}
+
+async function postAdminJson(
+  env: Env,
+  path: string,
+  body: unknown,
+  token = 'adminToken',
+) {
+  return createApp().request(
+    path,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
 }
 
 async function postVote(
@@ -632,7 +801,6 @@ describe('worker app', () => {
   });
 
   describe('review create/edit/delete permissions', () => {
-
     it('rejects logged-out review create', async () => {
       const env = await createTestEnv({});
       const response = await createApp().request(
@@ -640,7 +808,12 @@ describe('worker app', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ itemId: 'item-1', rating: 'up', body: '', lang: 'en' }),
+          body: JSON.stringify({
+            itemId: 'item-1',
+            rating: 'up',
+            body: '',
+            lang: 'en',
+          }),
         },
         env,
       );
@@ -648,7 +821,9 @@ describe('worker app', () => {
     });
 
     it('rejects banned user review create', async () => {
-      const env = await createTestEnv({ token: bannedUser('banned-c', 'Banned') });
+      const env = await createTestEnv({
+        token: bannedUser('banned-c', 'Banned'),
+      });
       const response = await postReview(env, 'token', {
         itemId: 'item-1',
         rating: 'up',
@@ -659,7 +834,9 @@ describe('worker app', () => {
     });
 
     it('allows owner to edit their review', async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-edit', 'Editor') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('user-edit', 'Editor'),
+      });
       db.addReview(seededReview('review-edit-1', 'user-edit'));
 
       const response = await patchReview(env, 'token', 'review-edit-1', {
@@ -671,7 +848,9 @@ describe('worker app', () => {
     });
 
     it("returns 404 when editing another user's review", async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-a', 'User A') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('user-a', 'User A'),
+      });
       db.addReview(seededReview('review-b-1', 'user-b'));
 
       const response = await patchReview(env, 'token', 'review-b-1', {
@@ -707,7 +886,9 @@ describe('worker app', () => {
     });
 
     it('rejects banned user review edit', async () => {
-      const env = await createTestEnv({ token: bannedUser('banned-e', 'Banned') });
+      const env = await createTestEnv({
+        token: bannedUser('banned-e', 'Banned'),
+      });
       const response = await patchReview(env, 'token', 'review-x', {
         rating: 'up',
         body: '',
@@ -717,7 +898,9 @@ describe('worker app', () => {
     });
 
     it('allows owner to delete their review', async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-del', 'Deleter') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('user-del', 'Deleter'),
+      });
       db.addReview(seededReview('review-del-1', 'user-del'));
 
       const response = await deleteReview(env, 'token', 'review-del-1');
@@ -725,7 +908,9 @@ describe('worker app', () => {
     });
 
     it("returns 404 when deleting another user's review", async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-c', 'User C') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('user-c', 'User C'),
+      });
       db.addReview(seededReview('review-d-1', 'user-d'));
 
       const response = await deleteReview(env, 'token', 'review-d-1');
@@ -733,7 +918,9 @@ describe('worker app', () => {
     });
 
     it('returns 404 when deleting a non-existent review', async () => {
-      const env = await createTestEnv({ token: reviewer('user-ne-del', 'User') });
+      const env = await createTestEnv({
+        token: reviewer('user-ne-del', 'User'),
+      });
       const response = await deleteReview(env, 'token', 'nonexistent-id');
       expect(response.status).toBe(404);
     });
@@ -749,13 +936,17 @@ describe('worker app', () => {
     });
 
     it('rejects banned user review delete', async () => {
-      const env = await createTestEnv({ token: bannedUser('banned-d', 'Banned') });
+      const env = await createTestEnv({
+        token: bannedUser('banned-d', 'Banned'),
+      });
       const response = await deleteReview(env, 'token', 'review-x');
       expect(response.status).toBe(401);
     });
 
     it('returns 404 when deleting an already-deleted review', async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-re-del', 'User') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('user-re-del', 'User'),
+      });
       const now = new Date().toISOString();
       db.addReview({
         id: 'review-already-del',
@@ -777,18 +968,28 @@ describe('worker app', () => {
   });
 
   describe('vote upsert behavior', () => {
-    type ReviewRow = { helpfulUp: number; helpfulDown: number; viewerVote: number | null };
+    type ReviewRow = {
+      helpfulUp: number;
+      helpfulDown: number;
+      viewerVote: number | null;
+    };
 
     async function getFirstReview(env: Env, itemId: string, token?: string) {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      const res = await createApp().request(`/items/${itemId}/reviews`, { headers }, env);
+      const res = await createApp().request(
+        `/items/${itemId}/reviews`,
+        { headers },
+        env,
+      );
       const data = (await res.json()) as { data: { reviews: ReviewRow[] } };
       return data.data.reviews[0] as ReviewRow;
     }
 
     it('casts a helpful vote', async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('voter-1', 'Voter') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('voter-1', 'Voter'),
+      });
       db.addReview(seededReview('rv-1', 'other-user'));
 
       const response = await postVote(env, 'token', 'rv-1', 1);
@@ -801,7 +1002,9 @@ describe('worker app', () => {
     });
 
     it('casts an unhelpful vote', async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('voter-2', 'Voter') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('voter-2', 'Voter'),
+      });
       db.addReview(seededReview('rv-2', 'other-user'));
 
       const response = await postVote(env, 'token', 'rv-2', -1);
@@ -814,7 +1017,9 @@ describe('worker app', () => {
     });
 
     it('changes vote from helpful to unhelpful without double-counting', async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('voter-3', 'Voter') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('voter-3', 'Voter'),
+      });
       db.addReview(seededReview('rv-3', 'other-user'));
 
       await postVote(env, 'token', 'rv-3', 1);
@@ -828,7 +1033,9 @@ describe('worker app', () => {
     });
 
     it('rejects voting on own review', async () => {
-      const [env, db] = await createTestEnvWithDb({ token: reviewer('own-voter', 'Self') });
+      const [env, db] = await createTestEnvWithDb({
+        token: reviewer('own-voter', 'Self'),
+      });
       db.addReview(seededReview('rv-own', 'own-voter'));
 
       const response = await postVote(env, 'token', 'rv-own', 1);
@@ -852,9 +1059,176 @@ describe('worker app', () => {
     });
 
     it('rejects banned user vote', async () => {
-      const env = await createTestEnv({ token: bannedUser('banned-voter', 'Banned') });
+      const env = await createTestEnv({
+        token: bannedUser('banned-voter', 'Banned'),
+      });
       const response = await postVote(env, 'token', 'rv-x', 1);
       expect(response.status).toBe(401);
+    });
+  });
+
+  describe('admin moderation', () => {
+    it('rejects non-admin report list access', async () => {
+      const env = await createTestEnv({
+        token: reviewer('user-not-admin', 'User'),
+      });
+      const response = await createApp().request(
+        '/admin/reports',
+        { headers: { Authorization: 'Bearer token' } },
+        env,
+      );
+
+      expect(response.status).toBe(403);
+    });
+
+    it('lists unresolved reports for admins', async () => {
+      const [env, db] = await createAdminTestEnv();
+      db.addUser(reviewer('reporter-1', 'Reporter'));
+      db.addUser(reviewer('author-1', 'Author'));
+      db.addReview(seededReview('reported-review-1', 'author-1'));
+      db.addReport(seededReport('report-1', 'reported-review-1', 'reporter-1'));
+
+      const response = await createApp().request(
+        '/admin/reports',
+        { headers: { Authorization: 'Bearer adminToken' } },
+        env,
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true,
+        data: { reports: [{ id: 'report-1', reviewId: 'reported-review-1' }] },
+      });
+    });
+
+    it('renders a basic admin page', async () => {
+      const [env, db] = await createAdminTestEnv();
+      db.addUser(reviewer('reporter-html', 'Reporter'));
+      db.addUser(reviewer('author-html', 'Author'));
+      db.addReview(seededReview('review-html', 'author-html'));
+      db.addReport(seededReport('report-html', 'review-html', 'reporter-html'));
+
+      const response = await createApp().request(
+        '/admin',
+        { headers: { Authorization: 'Bearer adminToken' } },
+        env,
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toContain('Unresolved Reports');
+    });
+
+    it('resolves reports and logs moderation action', async () => {
+      const [env, db] = await createAdminTestEnv();
+      db.addUser(reviewer('reporter-resolve', 'Reporter'));
+      db.addReport(
+        seededReport('report-resolve', 'review-resolve', 'reporter-resolve'),
+      );
+
+      const response = await postAdminJson(
+        env,
+        '/admin/reports/report-resolve/resolve',
+        {
+          resolution: 'No policy violation found.',
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(db.moderationActionCount()).toBe(1);
+    });
+
+    it('moderator-deletes reviews and logs moderation action', async () => {
+      const [env, db] = await createAdminTestEnv();
+      db.addUser(reviewer('author-delete', 'Author'));
+      db.addReview(seededReview('review-delete-admin', 'author-delete'));
+
+      const response = await postAdminJson(
+        env,
+        '/admin/reviews/review-delete-admin/delete',
+        {
+          reason: 'Harassment report upheld.',
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(db.moderationActionCount()).toBe(1);
+    });
+
+    it('bans users, then banned users can read but cannot write', async () => {
+      const [env, db] = await createAdminTestEnv();
+      db.addUser(reviewer('user-to-ban', 'Target'));
+      db.addReview(seededReview('review-readable-after-ban', 'user-to-ban'));
+      db.addSession({
+        tokenHash: await hashSessionToken('targetToken'),
+        userId: 'user-to-ban',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        revokedAt: null,
+      });
+
+      const banResponse = await postAdminJson(
+        env,
+        '/admin/users/user-to-ban/ban',
+        {
+          reason: 'Repeated abuse.',
+        },
+      );
+      expect(banResponse.status).toBe(200);
+      expect(db.moderationActionCount()).toBe(1);
+
+      const readResponse = await createApp().request(
+        '/items/item-1/reviews',
+        {},
+        env,
+      );
+      expect(readResponse.status).toBe(200);
+
+      const writeResponse = await postReview(env, 'targetToken', {
+        itemId: 'item-2',
+        rating: 'up',
+        body: '',
+        lang: 'en',
+      });
+      expect(writeResponse.status).toBe(401);
+    });
+
+    it('returns 404 when resolving a non-existent report', async () => {
+      const [env] = await createAdminTestEnv();
+
+      const response = await postAdminJson(env, '/admin/reports/no-such-report/resolve', {
+        resolution: 'No violation.',
+      });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 404 when moderator-deleting a non-existent review', async () => {
+      const [env] = await createAdminTestEnv();
+
+      const response = await postAdminJson(env, '/admin/reviews/no-such-review/delete', {
+        reason: 'Test.',
+      });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 404 when banning a non-existent user', async () => {
+      const [env] = await createAdminTestEnv();
+
+      const response = await postAdminJson(env, '/admin/users/no-such-user/ban', {
+        reason: 'Test.',
+      });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 400 when a moderator tries to ban themselves', async () => {
+      const [env] = await createAdminTestEnv();
+
+      const response = await postAdminJson(env, '/admin/users/admin-user/ban', {
+        reason: 'Testing self-ban guard.',
+      });
+
+      expect(response.status).toBe(400);
     });
   });
 
