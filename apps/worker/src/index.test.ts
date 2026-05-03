@@ -93,6 +93,10 @@ class FakeD1Database {
     this.sessions.set(session.tokenHash, session);
   }
 
+  addReview(review: TestReview) {
+    this.reviews.set(review.id, { ...review });
+  }
+
   first<T>(sql: string, values: unknown[]): T | null {
     if (sql.includes('FROM sessions')) {
       const tokenHash = String(values[0]);
@@ -141,6 +145,17 @@ class FakeD1Database {
         (entry) => entry.userId === userId && entry.itemId === itemId,
       );
       return review ? ({ id: review.id } as T) : null;
+    }
+
+    if (
+      sql.includes('SELECT id FROM reviews') &&
+      sql.includes('user_id = ?') &&
+      !sql.includes('item_id = ?')
+    ) {
+      const reviewId = String(values[0]);
+      const userId = String(values[1]);
+      const review = this.reviews.get(reviewId);
+      return review && review.userId === userId ? ({ id: review.id } as T) : null;
     }
 
     return null;
@@ -253,6 +268,50 @@ class FakeD1Database {
       return 1;
     }
 
+    if (sql.includes('UPDATE reviews') && sql.includes('SET rating = ?')) {
+      const [rating, body, lang, purchaseState, reviewId, userId] = values as [
+        'up' | 'down',
+        string,
+        'en' | 'ja' | 'other',
+        'unknown' | 'not_detected' | 'appears_purchased',
+        string,
+        string,
+      ];
+      const review = this.reviews.get(reviewId);
+      if (!review || review.userId !== userId || review.status !== 'visible')
+        return 0;
+      review.rating = rating;
+      review.body = body;
+      review.lang = lang;
+      review.purchaseState = purchaseState;
+      review.updatedAt = new Date().toISOString();
+      return 1;
+    }
+
+    if (sql.includes('UPDATE reviews') && sql.includes("SET status = 'deleted'")) {
+      const [reviewId, userId] = values as [string, string];
+      const review = this.reviews.get(reviewId);
+      if (!review || review.userId !== userId || review.status !== 'visible')
+        return 0;
+      review.status = 'deleted';
+      review.deletedAt = new Date().toISOString();
+      review.updatedAt = new Date().toISOString();
+      return 1;
+    }
+
+    if (sql.includes('INSERT INTO review_votes')) {
+      const [reviewId, userId, value] = values as [string, string, 1 | -1];
+      const existing = this.votes.find(
+        (v) => v.reviewId === reviewId && v.userId === userId,
+      );
+      if (existing) {
+        existing.value = value;
+      } else {
+        this.votes.push({ reviewId, userId, value });
+      }
+      return 1;
+    }
+
     if (sql.includes('INSERT INTO rate_limits')) {
       const [key, bucket, limit] = values as [string, string, number];
       const counterKey = `${key}:${bucket}`;
@@ -279,6 +338,13 @@ const corsEnv = {
 } as Env;
 
 async function createTestEnv(tokens: Record<string, TestUser>): Promise<Env> {
+  const [env] = await createTestEnvWithDb(tokens);
+  return env;
+}
+
+async function createTestEnvWithDb(
+  tokens: Record<string, TestUser>,
+): Promise<[Env, FakeD1Database]> {
   const db = new FakeD1Database();
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
@@ -292,7 +358,7 @@ async function createTestEnv(tokens: Record<string, TestUser>): Promise<Env> {
     });
   }
 
-  return { ...corsEnv, DB: db as unknown as D1Database };
+  return [{ ...corsEnv, DB: db as unknown as D1Database }, db];
 }
 
 function reviewer(userId: string, publicName: string): TestUser {
@@ -322,6 +388,74 @@ async function postReport(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+    },
+    env,
+  );
+}
+
+function seededReview(id: string, userId: string, itemId = 'item-1'): TestReview {
+  const now = new Date().toISOString();
+  return {
+    id,
+    itemId,
+    userId,
+    rating: 'up',
+    body: '',
+    lang: 'en',
+    purchaseState: 'unknown',
+    status: 'visible',
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  };
+}
+
+async function postVote(
+  env: Env,
+  token: string,
+  reviewId: string,
+  value: 1 | -1,
+) {
+  return createApp().request(
+    `/reviews/${reviewId}/votes`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ value }),
+    },
+    env,
+  );
+}
+
+async function patchReview(
+  env: Env,
+  token: string,
+  reviewId: string,
+  body: { rating: 'up' | 'down'; body: string; lang: 'en' | 'ja' | 'other' },
+) {
+  return createApp().request(
+    `/reviews/${reviewId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
+}
+
+async function deleteReview(env: Env, token: string, reviewId: string) {
+  return createApp().request(
+    `/reviews/${reviewId}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
     },
     env,
   );
@@ -494,6 +628,233 @@ describe('worker app', () => {
           },
         ],
       },
+    });
+  });
+
+  describe('review create/edit/delete permissions', () => {
+
+    it('rejects logged-out review create', async () => {
+      const env = await createTestEnv({});
+      const response = await createApp().request(
+        '/reviews',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemId: 'item-1', rating: 'up', body: '', lang: 'en' }),
+        },
+        env,
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects banned user review create', async () => {
+      const env = await createTestEnv({ token: bannedUser('banned-c', 'Banned') });
+      const response = await postReview(env, 'token', {
+        itemId: 'item-1',
+        rating: 'up',
+        body: '',
+        lang: 'en',
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('allows owner to edit their review', async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-edit', 'Editor') });
+      db.addReview(seededReview('review-edit-1', 'user-edit'));
+
+      const response = await patchReview(env, 'token', 'review-edit-1', {
+        rating: 'down',
+        body: 'Changed my mind after more use.',
+        lang: 'en',
+      });
+      expect(response.status).toBe(200);
+    });
+
+    it("returns 404 when editing another user's review", async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-a', 'User A') });
+      db.addReview(seededReview('review-b-1', 'user-b'));
+
+      const response = await patchReview(env, 'token', 'review-b-1', {
+        rating: 'down',
+        body: 'Attempting to hijack this review.',
+        lang: 'en',
+      });
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 404 when editing a non-existent review', async () => {
+      const env = await createTestEnv({ token: reviewer('user-ne', 'User') });
+      const response = await patchReview(env, 'token', 'nonexistent-id', {
+        rating: 'up',
+        body: '',
+        lang: 'en',
+      });
+      expect(response.status).toBe(404);
+    });
+
+    it('rejects logged-out review edit', async () => {
+      const env = await createTestEnv({});
+      const response = await createApp().request(
+        '/reviews/some-id',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating: 'up', body: '', lang: 'en' }),
+        },
+        env,
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects banned user review edit', async () => {
+      const env = await createTestEnv({ token: bannedUser('banned-e', 'Banned') });
+      const response = await patchReview(env, 'token', 'review-x', {
+        rating: 'up',
+        body: '',
+        lang: 'en',
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('allows owner to delete their review', async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-del', 'Deleter') });
+      db.addReview(seededReview('review-del-1', 'user-del'));
+
+      const response = await deleteReview(env, 'token', 'review-del-1');
+      expect(response.status).toBe(200);
+    });
+
+    it("returns 404 when deleting another user's review", async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-c', 'User C') });
+      db.addReview(seededReview('review-d-1', 'user-d'));
+
+      const response = await deleteReview(env, 'token', 'review-d-1');
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 404 when deleting a non-existent review', async () => {
+      const env = await createTestEnv({ token: reviewer('user-ne-del', 'User') });
+      const response = await deleteReview(env, 'token', 'nonexistent-id');
+      expect(response.status).toBe(404);
+    });
+
+    it('rejects logged-out review delete', async () => {
+      const env = await createTestEnv({});
+      const response = await createApp().request(
+        '/reviews/some-id',
+        { method: 'DELETE' },
+        env,
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects banned user review delete', async () => {
+      const env = await createTestEnv({ token: bannedUser('banned-d', 'Banned') });
+      const response = await deleteReview(env, 'token', 'review-x');
+      expect(response.status).toBe(401);
+    });
+
+    it('returns 404 when deleting an already-deleted review', async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('user-re-del', 'User') });
+      const now = new Date().toISOString();
+      db.addReview({
+        id: 'review-already-del',
+        itemId: 'item-1',
+        userId: 'user-re-del',
+        rating: 'up',
+        body: '',
+        lang: 'en',
+        purchaseState: 'unknown',
+        status: 'deleted',
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: now,
+      });
+
+      const response = await deleteReview(env, 'token', 'review-already-del');
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe('vote upsert behavior', () => {
+    type ReviewRow = { helpfulUp: number; helpfulDown: number; viewerVote: number | null };
+
+    async function getFirstReview(env: Env, itemId: string, token?: string) {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await createApp().request(`/items/${itemId}/reviews`, { headers }, env);
+      const data = (await res.json()) as { data: { reviews: ReviewRow[] } };
+      return data.data.reviews[0];
+    }
+
+    it('casts a helpful vote', async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('voter-1', 'Voter') });
+      db.addReview(seededReview('rv-1', 'other-user'));
+
+      const response = await postVote(env, 'token', 'rv-1', 1);
+      expect(response.status).toBe(200);
+
+      const review = await getFirstReview(env, 'item-1', 'token');
+      expect(review.helpfulUp).toBe(1);
+      expect(review.helpfulDown).toBe(0);
+      expect(review.viewerVote).toBe(1);
+    });
+
+    it('casts an unhelpful vote', async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('voter-2', 'Voter') });
+      db.addReview(seededReview('rv-2', 'other-user'));
+
+      const response = await postVote(env, 'token', 'rv-2', -1);
+      expect(response.status).toBe(200);
+
+      const review = await getFirstReview(env, 'item-1', 'token');
+      expect(review.helpfulUp).toBe(0);
+      expect(review.helpfulDown).toBe(1);
+      expect(review.viewerVote).toBe(-1);
+    });
+
+    it('changes vote from helpful to unhelpful without double-counting', async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('voter-3', 'Voter') });
+      db.addReview(seededReview('rv-3', 'other-user'));
+
+      await postVote(env, 'token', 'rv-3', 1);
+      const response = await postVote(env, 'token', 'rv-3', -1);
+      expect(response.status).toBe(200);
+
+      const review = await getFirstReview(env, 'item-1', 'token');
+      expect(review.helpfulUp).toBe(0);
+      expect(review.helpfulDown).toBe(1);
+      expect(review.viewerVote).toBe(-1);
+    });
+
+    it('rejects voting on own review', async () => {
+      const [env, db] = await createTestEnvWithDb({ token: reviewer('own-voter', 'Self') });
+      db.addReview(seededReview('rv-own', 'own-voter'));
+
+      const response = await postVote(env, 'token', 'rv-own', 1);
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as { error: { code: string } };
+      expect(data.error.code).toBe('OWN_REVIEW');
+    });
+
+    it('rejects logged-out vote', async () => {
+      const env = await createTestEnv({});
+      const response = await createApp().request(
+        '/reviews/rv-x/votes',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: 1 }),
+        },
+        env,
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects banned user vote', async () => {
+      const env = await createTestEnv({ token: bannedUser('banned-voter', 'Banned') });
+      const response = await postVote(env, 'token', 'rv-x', 1);
+      expect(response.status).toBe(401);
     });
   });
 
