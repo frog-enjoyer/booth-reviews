@@ -11,6 +11,8 @@
     "dev:worker": "pnpm --filter @booth-addon/worker dev",
     "format": "prettier --write .",
     "lint": "eslint .",
+    "package:chrome": "pnpm --filter @booth-addon/extension zip",
+    "package:firefox": "pnpm --filter @booth-addon/extension zip:firefox",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },
