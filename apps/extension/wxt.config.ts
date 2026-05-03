@@ -17,7 +17,8 @@ export default defineConfig({
   }),
   manifest: ({ browser }) => ({
     name: 'Booth Reviews',
-    description: 'Community reviews and ratings for Booth.pm listings.',
+    description:
+      'Independent community reviews and ratings for Booth.pm listings. Not affiliated with Booth.pm or Pixiv Inc.',
     homepage_url: 'https://github.com/frog-enjoyer/booth-reviews',
     permissions: ['storage'],
     host_permissions: ['https://booth.pm/*', 'https://*.booth.pm/*'],

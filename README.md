@@ -4,6 +4,8 @@ A browser extension that adds community reviews and ratings to [Booth.pm](https:
 
 Booth has no built-in review system. This extension lets users rate and review items inline on listing pages, so the community can share honest feedback before buying.
 
+Booth Reviews is an independent community project. It is not affiliated with, endorsed by, or sponsored by Booth.pm, Pixiv Inc., Discord, or VRChat.
+
 ---
 
 ## Features
