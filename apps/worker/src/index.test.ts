@@ -2,11 +2,15 @@ import {
   REPORTS_PER_DAY_LIMIT,
   REVIEWS_PER_DAY_LIMIT,
 } from '@booth-addon/shared';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from './index';
 import { hashSessionToken } from './auth/session';
 import type { Env } from './types';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 type TestUser = {
   userId: string;
@@ -142,6 +146,20 @@ class FakeD1Database {
       } as T;
     }
 
+    if (sql.includes('FROM users') && sql.includes('WHERE discord_id = ?')) {
+      const discordId = String(values[0]);
+      const user = [...this.users.values()].find(
+        (entry) => entry.discordId === discordId,
+      );
+      return user
+        ? ({
+            userId: user.userId,
+            publicName: user.publicName,
+            bannedAt: user.bannedAt,
+          } as T)
+        : null;
+    }
+
     if (sql.includes('FROM reviews') && sql.includes('SUM(CASE WHEN rating')) {
       const viewerUserId = String(values[0]);
       const itemId = String(values[2]);
@@ -273,6 +291,37 @@ class FakeD1Database {
   }
 
   run(sql: string, values: unknown[]): number {
+    if (sql.includes('INSERT INTO users')) {
+      const [userId, discordId, publicName] = values as [
+        string,
+        string,
+        string,
+      ];
+      const existing = [...this.users.values()].find(
+        (user) => user.discordId === discordId,
+      );
+      if (!existing)
+        this.users.set(userId, {
+          userId,
+          discordId,
+          publicName,
+          bannedAt: null,
+          deletedAt: null,
+        });
+      return existing ? 0 : 1;
+    }
+
+    if (sql.includes('INSERT INTO sessions')) {
+      const [tokenHash, userId, expiresAt] = values as [string, string, string];
+      this.sessions.set(tokenHash, {
+        tokenHash,
+        userId,
+        expiresAt,
+        revokedAt: null,
+      });
+      return 1;
+    }
+
     if (sql.includes('INSERT INTO reviews')) {
       const [id, itemId, userId, rating, body, lang, purchaseState] =
         values as [
@@ -1068,6 +1117,90 @@ describe('worker app', () => {
   });
 
   describe('admin moderation', () => {
+    it('renders Discord login link for browser admin access', async () => {
+      const response = await createApp().request('/admin', {}, {
+        ...corsEnv,
+        DISCORD_CLIENT_ID: 'client-id',
+        DISCORD_REDIRECT_URI: 'https://api.cflx.cc/auth/discord/callback',
+      } as Env);
+
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).toContain('Sign in with Discord');
+      expect(html).toContain('state=admin');
+    });
+
+    it('redirects admin login to Discord with admin state', async () => {
+      const response = await createApp().request('/admin/login', {}, {
+        ...corsEnv,
+        DISCORD_CLIENT_ID: 'client-id',
+        DISCORD_REDIRECT_URI: 'https://api.cflx.cc/auth/discord/callback',
+      } as Env);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')).toContain(
+        'discord.com/oauth2/authorize',
+      );
+      expect(response.headers.get('Location')).toContain('state=admin');
+    });
+
+    it('sets an admin cookie after Discord admin callback', async () => {
+      const db = new FakeD1Database();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string | URL | Request) => {
+          const target = String(url);
+          if (target.includes('/oauth2/token')) {
+            return new Response(
+              JSON.stringify({
+                access_token: 'discord-access',
+                token_type: 'Bearer',
+              }),
+              {
+                headers: { 'Content-Type': 'application/json' },
+              },
+            );
+          }
+
+          return new Response(
+            JSON.stringify({ id: 'admin-discord', username: 'admin' }),
+            {
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }),
+      );
+
+      const env = {
+        ...corsEnv,
+        DB: db as unknown as D1Database,
+        DISCORD_CLIENT_ID: 'client-id',
+        DISCORD_CLIENT_SECRET: 'client-secret',
+        DISCORD_REDIRECT_URI: 'https://api.cflx.cc/auth/discord/callback',
+        ADMIN_DISCORD_IDS: 'admin-discord',
+      } as Env;
+
+      const callback = await createApp().request(
+        '/auth/discord/callback?code=ok&state=admin',
+        {},
+        env,
+      );
+      expect(callback.status).toBe(302);
+      expect(callback.headers.get('Location')).toBe('/admin');
+
+      const cookie = callback.headers.get('Set-Cookie');
+      expect(cookie).toContain('boothAdminSession=');
+      expect(cookie).toContain('HttpOnly');
+
+      const adminPage = await createApp().request(
+        '/admin',
+        { headers: { Cookie: cookie ?? '' } },
+        env,
+      );
+      expect(adminPage.status).toBe(200);
+      await expect(adminPage.text()).resolves.toContain('Unresolved Reports');
+    });
+
     it('rejects non-admin report list access', async () => {
       const env = await createTestEnv({
         token: reviewer('user-not-admin', 'User'),
@@ -1194,9 +1327,13 @@ describe('worker app', () => {
     it('returns 404 when resolving a non-existent report', async () => {
       const [env] = await createAdminTestEnv();
 
-      const response = await postAdminJson(env, '/admin/reports/no-such-report/resolve', {
-        resolution: 'No violation.',
-      });
+      const response = await postAdminJson(
+        env,
+        '/admin/reports/no-such-report/resolve',
+        {
+          resolution: 'No violation.',
+        },
+      );
 
       expect(response.status).toBe(404);
     });
@@ -1204,9 +1341,13 @@ describe('worker app', () => {
     it('returns 404 when moderator-deleting a non-existent review', async () => {
       const [env] = await createAdminTestEnv();
 
-      const response = await postAdminJson(env, '/admin/reviews/no-such-review/delete', {
-        reason: 'Test.',
-      });
+      const response = await postAdminJson(
+        env,
+        '/admin/reviews/no-such-review/delete',
+        {
+          reason: 'Test.',
+        },
+      );
 
       expect(response.status).toBe(404);
     });
@@ -1214,9 +1355,13 @@ describe('worker app', () => {
     it('returns 404 when banning a non-existent user', async () => {
       const [env] = await createAdminTestEnv();
 
-      const response = await postAdminJson(env, '/admin/users/no-such-user/ban', {
-        reason: 'Test.',
-      });
+      const response = await postAdminJson(
+        env,
+        '/admin/users/no-such-user/ban',
+        {
+          reason: 'Test.',
+        },
+      );
 
       expect(response.status).toBe(404);
     });

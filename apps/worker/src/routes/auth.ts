@@ -2,8 +2,18 @@ import type { AuthStartResponse } from '@booth-addon/shared';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
-import { exchangeDiscordCode, fetchDiscordUser } from '../auth/discord';
-import { createSession, getBearerToken, getSessionUser, revokeSession } from '../auth/session';
+import {
+  discordAuthorizeUrl,
+  exchangeDiscordCode,
+  fetchDiscordUser,
+} from '../auth/discord';
+import {
+  adminSessionCookie,
+  createSession,
+  getBearerToken,
+  getSessionUser,
+  revokeSession,
+} from '../auth/session';
 import { getMe, updatePublicName, upsertDiscordUser } from '../db/users';
 import { fail, ok } from '../response';
 import type { AppBindings } from '../types';
@@ -13,16 +23,20 @@ export const authRoutes = new Hono<AppBindings>();
 
 authRoutes.post('/discord/start', (c) => {
   if (!c.env.DISCORD_CLIENT_ID || !c.env.DISCORD_REDIRECT_URI) {
-    return c.json(fail('AUTH_NOT_CONFIGURED', 'Discord OAuth is not configured'), 501);
+    return c.json(
+      fail('AUTH_NOT_CONFIGURED', 'Discord OAuth is not configured'),
+      501,
+    );
   }
 
-  const url = new URL('https://discord.com/oauth2/authorize');
-  url.searchParams.set('client_id', c.env.DISCORD_CLIENT_ID);
-  url.searchParams.set('redirect_uri', c.env.DISCORD_REDIRECT_URI);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'identify');
-
-  return c.json(ok<AuthStartResponse>({ url: url.toString() }));
+  return c.json(
+    ok<AuthStartResponse>({
+      url: discordAuthorizeUrl({
+        clientId: c.env.DISCORD_CLIENT_ID,
+        redirectUri: c.env.DISCORD_REDIRECT_URI,
+      }),
+    }),
+  );
 });
 
 authRoutes.get('/discord/callback', async (c) => {
@@ -31,8 +45,14 @@ authRoutes.get('/discord/callback', async (c) => {
     return c.html(errorPage('MISSING_CODE', 'Discord did not return a code'));
   }
 
-  if (!c.env.DISCORD_CLIENT_ID || !c.env.DISCORD_CLIENT_SECRET || !c.env.DISCORD_REDIRECT_URI) {
-    return c.html(errorPage('AUTH_NOT_CONFIGURED', 'Discord OAuth is not configured'));
+  if (
+    !c.env.DISCORD_CLIENT_ID ||
+    !c.env.DISCORD_CLIENT_SECRET ||
+    !c.env.DISCORD_REDIRECT_URI
+  ) {
+    return c.html(
+      errorPage('AUTH_NOT_CONFIGURED', 'Discord OAuth is not configured'),
+    );
   }
 
   try {
@@ -46,11 +66,39 @@ authRoutes.get('/discord/callback', async (c) => {
     const me = await upsertDiscordUser(c.env.DB, discordUser);
     const token = await createSession(c.env.DB, me.userId);
 
+    if (c.req.query('state') === 'admin') {
+      if (
+        me.banned ||
+        !adminDiscordIds(c.env.ADMIN_DISCORD_IDS).has(discordUser.id)
+      ) {
+        return c.html(errorPage('FORBIDDEN', 'Admin access is required'));
+      }
+
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: '/admin',
+          'Set-Cookie': adminSessionCookie(token),
+        },
+      });
+    }
+
     return c.html(successPage(token, me.publicName));
   } catch {
-    return c.html(errorPage('AUTH_FAILED', 'Discord login failed. Please try again.'));
+    return c.html(
+      errorPage('AUTH_FAILED', 'Discord login failed. Please try again.'),
+    );
   }
 });
+
+function adminDiscordIds(value: string | undefined): Set<string> {
+  return new Set(
+    (value ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
+}
 
 function successPage(token: string, publicName: string): string {
   const payload = JSON.stringify({ type: 'AUTH_SUCCESS', token, publicName });
@@ -84,7 +132,8 @@ function errorPage(code: string, message: string): string {
 authRoutes.get('/me', async (c) => {
   const token = getBearerToken(c.req.header('Authorization'));
   const sessionUser = token ? await getSessionUser(c.env.DB, token) : null;
-  if (!sessionUser) return c.json(fail('SESSION_EXPIRED', 'Sign in again'), 401);
+  if (!sessionUser)
+    return c.json(fail('SESSION_EXPIRED', 'Sign in again'), 401);
 
   const me = await getMe(c.env.DB, sessionUser.userId);
   if (!me) return c.json(fail('SESSION_EXPIRED', 'Sign in again'), 401);
@@ -96,15 +145,21 @@ authRoutes.patch(
   '/me',
   validator('json', (value, c) => {
     const result = meUpdateSchema.safeParse(value);
-    if (!result.success) return c.json(fail('INVALID_REQUEST', result.error.message), 400);
+    if (!result.success)
+      return c.json(fail('INVALID_REQUEST', result.error.message), 400);
     return result.data;
   }),
   async (c) => {
     const token = getBearerToken(c.req.header('Authorization'));
     const sessionUser = token ? await getSessionUser(c.env.DB, token) : null;
-    if (!sessionUser) return c.json(fail('SESSION_EXPIRED', 'Sign in again'), 401);
+    if (!sessionUser)
+      return c.json(fail('SESSION_EXPIRED', 'Sign in again'), 401);
 
-    const me = await updatePublicName(c.env.DB, sessionUser.userId, c.req.valid('json').publicName);
+    const me = await updatePublicName(
+      c.env.DB,
+      sessionUser.userId,
+      c.req.valid('json').publicName,
+    );
     if (!me) return c.json(fail('SESSION_EXPIRED', 'Sign in again'), 401);
 
     return c.json(ok(me));

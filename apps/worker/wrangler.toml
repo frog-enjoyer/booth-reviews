@@ -2,6 +2,13 @@ name = "booth-addon-api"
 main = "src/index.ts"
 compatibility_date = "2026-05-02"
 account_id = "6846533d7c7c6509539a06eb396c8554"
+workers_dev = false
+preview_urls = false
+
+[[routes]]
+pattern = "api.cflx.cc"
+zone_name = "cflx.cc"
+custom_domain = true
 
 [[d1_databases]]
 binding = "DB"
@@ -12,4 +19,4 @@ database_id = "02a95699-b205-40bf-919d-635f02fa2a6b"
 CORS_ALLOWED_BOOTH_ORIGINS = "https://booth.pm"
 CORS_ALLOWED_EXTENSION_ORIGINS = "chrome-extension://amkoibeepdjkjbmkfkjopkjpkgipifkg"
 DISCORD_REDIRECT_URI = "https://api.cflx.cc/auth/discord/callback"
-ADMIN_DISCORD_IDS = ""
+ADMIN_DISCORD_IDS = "97037113354092544"
