@@ -1,5 +1,6 @@
 import { getMe, logout, startDiscordAuth } from '../../src/api/client';
 import { clearSessionToken, getSessionToken, setSessionToken } from '../../src/auth/session';
+import { getDarkMode, setDarkMode } from '../../src/ui/dark-mode';
 
 const stateLoading = document.querySelector<HTMLElement>('#state-loading');
 const stateSignedIn = document.querySelector<HTMLElement>('#state-signed-in');
@@ -77,3 +78,13 @@ logoutButton?.addEventListener('click', () => {
 });
 
 void refreshStatus();
+
+const darkModeToggle = document.querySelector<HTMLInputElement>('#dark-mode-toggle');
+
+void getDarkMode().then((enabled) => {
+  if (darkModeToggle) darkModeToggle.checked = enabled;
+});
+
+darkModeToggle?.addEventListener('change', () => {
+  void setDarkMode(darkModeToggle.checked);
+});

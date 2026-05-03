@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@booth-addon/shared": "workspace:*",
-    "darkreader": "^4.9.125",
     "wxt": "^0.20.14"
   }
 }
