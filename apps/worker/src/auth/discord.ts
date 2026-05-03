@@ -4,6 +4,21 @@ export type DiscordUser = {
   global_name?: string | null;
 };
 
+export function discordAuthorizeUrl(input: {
+  clientId: string;
+  redirectUri: string;
+  state?: string;
+}): string {
+  const url = new URL('https://discord.com/oauth2/authorize');
+  url.searchParams.set('client_id', input.clientId);
+  url.searchParams.set('redirect_uri', input.redirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', 'identify');
+  if (input.state) url.searchParams.set('state', input.state);
+
+  return url.toString();
+}
+
 type DiscordTokenResponse = {
   access_token: string;
   token_type: string;
@@ -34,7 +49,9 @@ export async function exchangeDiscordCode(input: {
   return token.access_token;
 }
 
-export async function fetchDiscordUser(accessToken: string): Promise<DiscordUser> {
+export async function fetchDiscordUser(
+  accessToken: string,
+): Promise<DiscordUser> {
   const response = await fetch('https://discord.com/api/users/@me', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });

@@ -2,8 +2,12 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { validator } from 'hono/validator';
 
+import { discordAuthorizeUrl } from '../auth/discord';
 import {
+  ADMIN_SESSION_COOKIE,
+  clearAdminSessionCookie,
   getBearerToken,
+  getCookieValue,
   getSessionUser,
   type SessionUser,
 } from '../auth/session';
@@ -24,6 +28,17 @@ import {
 
 export const moderationRoutes = new Hono<AppBindings>();
 
+type AdminAuthResult = SessionUser | 'unauthenticated' | 'banned' | 'forbidden';
+
+function adminLoginUrl(c: Context<AppBindings>): string | null {
+  if (!c.env.DISCORD_CLIENT_ID || !c.env.DISCORD_REDIRECT_URI) return null;
+  return discordAuthorizeUrl({
+    clientId: c.env.DISCORD_CLIENT_ID,
+    redirectUri: c.env.DISCORD_REDIRECT_URI,
+    state: 'admin',
+  });
+}
+
 function adminDiscordIds(c: Context<AppBindings>): Set<string> {
   return new Set(
     (c.env.ADMIN_DISCORD_IDS ?? '')
@@ -33,18 +48,30 @@ function adminDiscordIds(c: Context<AppBindings>): Set<string> {
   );
 }
 
+async function getAdminAuth(c: Context<AppBindings>): Promise<AdminAuthResult> {
+  const token =
+    getBearerToken(c.req.header('Authorization')) ??
+    getCookieValue(c.req.header('Cookie'), ADMIN_SESSION_COOKIE);
+  const user = token ? await getSessionUser(c.env.DB, token) : null;
+  if (!user) return 'unauthenticated';
+  if (user.bannedAt) return 'banned';
+  if (!adminDiscordIds(c).has(user.discordId)) return 'forbidden';
+
+  return user;
+}
+
 async function requireAdmin(
   c: Context<AppBindings>,
 ): Promise<SessionUser | Response> {
-  const token = getBearerToken(c.req.header('Authorization'));
-  const user = token ? await getSessionUser(c.env.DB, token) : null;
-  if (!user) return c.json(fail('UNAUTHORIZED', 'Sign in is required'), 401);
-  if (user.bannedAt)
+  const admin = await getAdminAuth(c);
+  if (admin === 'unauthenticated')
+    return c.json(fail('UNAUTHORIZED', 'Sign in is required'), 401);
+  if (admin === 'banned')
     return c.json(fail('UNAUTHORIZED', 'Admin account is banned'), 401);
-  if (!adminDiscordIds(c).has(user.discordId))
+  if (admin === 'forbidden')
     return c.json(fail('FORBIDDEN', 'Admin access is required'), 403);
 
-  return user;
+  return admin;
 }
 
 function escapeHtml(value: unknown): string {
@@ -88,6 +115,7 @@ function renderAdminPage(reports: AdminReport[]): string {
   </head>
   <body>
     <h1>Unresolved Reports</h1>
+    <p><a href="/admin/logout">Sign out</a></p>
     <p>Use the JSON admin endpoints to resolve reports, delete reviews, or ban users. Every action requires a reason and writes an audit log.</p>
     <p>Endpoints: <code>POST /admin/reports/:id/resolve</code>, <code>POST /admin/reviews/:id/delete</code>, <code>POST /admin/users/:id/ban</code>.</p>
     <table>
@@ -98,12 +126,62 @@ function renderAdminPage(reports: AdminReport[]): string {
 </html>`;
 }
 
+function renderLoginPage(
+  loginUrl: string | null,
+  message = 'Sign in with Discord to moderate reports.',
+): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Booth Reviews Admin Login</title>
+    <style>body { font: 14px/1.4 system-ui, sans-serif; margin: 24px; } a { display: inline-block; margin-top: 12px; }</style>
+  </head>
+  <body>
+    <h1>Booth Reviews Admin</h1>
+    <p>${escapeHtml(message)}</p>
+    ${loginUrl ? `<a href="${escapeHtml(loginUrl)}">Sign in with Discord</a>` : '<p>Discord OAuth is not configured.</p>'}
+  </body>
+</html>`;
+}
+
 moderationRoutes.get('/', async (c) => {
-  const admin = await requireAdmin(c);
-  if (admin instanceof Response) return admin;
+  const admin = await getAdminAuth(c);
+  if (admin === 'unauthenticated')
+    return c.html(renderLoginPage(adminLoginUrl(c)));
+  if (admin === 'banned')
+    return c.html(
+      renderLoginPage(adminLoginUrl(c), 'Your admin account is banned.'),
+      401,
+    );
+  if (admin === 'forbidden')
+    return c.html(
+      renderLoginPage(
+        adminLoginUrl(c),
+        'This Discord account is not in the admin allowlist.',
+      ),
+      403,
+    );
 
   const reports = await listUnresolvedReports(c.env.DB);
   return c.html(renderAdminPage(reports));
+});
+
+moderationRoutes.get('/login', (c) => {
+  const loginUrl = adminLoginUrl(c);
+  if (!loginUrl) return c.html(renderLoginPage(null), 501);
+  return c.redirect(loginUrl);
+});
+
+moderationRoutes.get('/logout', () => {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: '/admin',
+      'Set-Cookie': clearAdminSessionCookie(),
+    },
+  });
 });
 
 moderationRoutes.get('/reports', async (c) => {
@@ -195,7 +273,10 @@ moderationRoutes.post(
 
     const userId = c.req.param('userId');
     if (userId === admin.userId)
-      return c.json(fail('INVALID_REQUEST', 'Cannot ban your own account'), 400);
+      return c.json(
+        fail('INVALID_REQUEST', 'Cannot ban your own account'),
+        400,
+      );
     const { reason, reportId } = c.req.valid('json');
     const banned = await banUser(c.env.DB, userId);
     if (!banned) return c.json(fail('NOT_FOUND', 'User not found'), 404);

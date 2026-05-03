@@ -1,5 +1,7 @@
 import { SESSION_TOKEN_BYTES, SESSION_TTL_DAYS } from '@booth-addon/shared';
 
+export const ADMIN_SESSION_COOKIE = 'boothAdminSession';
+
 export type SessionUser = {
   userId: string;
   discordId: string;
@@ -34,6 +36,27 @@ export function sessionExpiry(): string {
 export function getBearerToken(header: string | undefined): string | null {
   if (!header?.startsWith('Bearer ')) return null;
   return header.slice('Bearer '.length).trim() || null;
+}
+
+export function getCookieValue(
+  header: string | undefined,
+  name: string,
+): string | null {
+  const cookies = header?.split(';') ?? [];
+  for (const cookie of cookies) {
+    const [rawKey, ...rawValue] = cookie.trim().split('=');
+    if (rawKey === name) return rawValue.join('=') || null;
+  }
+
+  return null;
+}
+
+export function adminSessionCookie(token: string): string {
+  return `${ADMIN_SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/admin; Max-Age=${SESSION_TTL_DAYS * 24 * 60 * 60}`;
+}
+
+export function clearAdminSessionCookie(): string {
+  return `${ADMIN_SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/admin; Max-Age=0`;
 }
 
 export async function getSessionUser(
