@@ -784,7 +784,7 @@ describe('worker app', () => {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await createApp().request(`/items/${itemId}/reviews`, { headers }, env);
       const data = (await res.json()) as { data: { reviews: ReviewRow[] } };
-      return data.data.reviews[0];
+      return data.data.reviews[0] as ReviewRow;
     }
 
     it('casts a helpful vote', async () => {
