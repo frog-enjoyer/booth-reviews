@@ -141,6 +141,25 @@
         padding: 14px 0 6px;
         text-align: center;
       }
+
+      .popup-links {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: 12px;
+      }
+
+      .popup-links a {
+        color: #57606a;
+        text-decoration: underline;
+      }
+
+      .popup-links a:focus-visible {
+        outline: 2px solid #0969da;
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
     </style>
   </head>
   <body>
@@ -183,6 +202,12 @@
       </div>
 
       <p id="login-error" class="error-msg"></p>
+
+      <nav class="popup-links" aria-label="Support links">
+        <a href="https://github.com/frog-enjoyer/booth-reviews/blob/main/docs/PRIVACY.md" target="_blank" rel="noreferrer">Privacy</a>
+        <span aria-hidden="true">|</span>
+        <a href="https://github.com/frog-enjoyer/booth-reviews/blob/main/docs/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
+      </nav>
 
     </div>
   </body>

@@ -11,5 +11,8 @@ coverage/
 !.env.production
 *.md
 !README.md
+TODOS.md
+docs/
+docs/*.md
 .gstack/
 .claude
