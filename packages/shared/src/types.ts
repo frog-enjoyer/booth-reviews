@@ -1,3 +1,5 @@
+import type { REPORT_REASONS } from './constants';
+
 export type Rating = 'up' | 'down';
 export type ReviewStatus = 'visible' | 'pending' | 'deleted';
 export type ReviewLang = 'en' | 'ja' | 'other';
@@ -49,6 +51,14 @@ export type ReviewUpdateInput = Omit<ReviewInput, 'itemId'>;
 
 export type ReviewVoteInput = {
   value: 1 | -1;
+};
+
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+export type ReportInput = {
+  reviewId: string;
+  reason: ReportReason;
+  details?: string;
 };
 
 export type Me = {

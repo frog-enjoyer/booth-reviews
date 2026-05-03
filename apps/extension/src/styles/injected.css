@@ -2,7 +2,9 @@
   border: 1px solid #d8dee4;
   border-radius: 10px;
   box-sizing: border-box;
-  font: 14px/1.4 system-ui, sans-serif;
+  font:
+    14px/1.4 system-ui,
+    sans-serif;
   margin: 12px 0;
   padding: 12px;
 }
@@ -102,7 +104,8 @@
 
 .booth-trust-vote-btn,
 .booth-trust-edit-btn,
-.booth-trust-delete-btn {
+.booth-trust-delete-btn,
+.booth-trust-report-btn {
   background: none;
   border: 1px solid #d0d7de;
   border-radius: 6px;
@@ -114,6 +117,35 @@
 
 .booth-trust-delete-btn {
   color: #cf222e;
+}
+
+.booth-trust-report-dialog {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  width: 100%;
+}
+
+.booth-trust-report-dialog label {
+  display: grid;
+  gap: 4px;
+}
+
+.booth-trust-report-dialog button,
+.booth-trust-report-dialog select,
+.booth-trust-report-details {
+  box-sizing: border-box;
+  min-height: 44px;
+}
+
+.booth-trust-report-details {
+  font: inherit;
+  padding: 8px;
+  resize: vertical;
+  width: 100%;
 }
 
 .booth-trust-badge {

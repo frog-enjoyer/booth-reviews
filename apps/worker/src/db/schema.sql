@@ -77,9 +77,21 @@ CREATE TABLE rate_limits (
   PRIMARY KEY (key, bucket)
 );
 
+CREATE TABLE moderation_actions (
+  id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  report_id TEXT REFERENCES reports(id),
+  moderator_user_id TEXT NOT NULL REFERENCES users(user_id),
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX idx_reviews_item_visible ON reviews(item_id, status, created_at);
 CREATE INDEX idx_reviews_user ON reviews(user_id, created_at);
 CREATE INDEX idx_reports_unresolved ON reports(resolved_at, created_at);
 CREATE INDEX idx_sessions_user ON sessions(user_id, expires_at);
 CREATE INDEX idx_votes_review ON review_votes(review_id);
 CREATE INDEX idx_rate_limits_bucket ON rate_limits(bucket);
+CREATE INDEX idx_moderation_actions_target ON moderation_actions(target_type, target_id, created_at);

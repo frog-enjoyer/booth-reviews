@@ -1,1 +1,3 @@
-export const reportReasons = ['harassment', 'spam', 'wrong_item', 'private_info', 'legal', 'other'] as const;
+import { REPORT_REASONS, type ReportReason } from '@booth-addon/shared';
+
+export const reportReasons = REPORT_REASONS satisfies readonly ReportReason[];
