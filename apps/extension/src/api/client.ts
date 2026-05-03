@@ -9,7 +9,7 @@ import type {
   ReviewVoteInput,
 } from '@booth-addon/shared';
 
-import { getSessionToken } from '../auth/session';
+import { clearSessionToken, getSessionToken } from '../auth/session';
 
 const API_BASE_URL = import.meta.env.PUBLIC_API_BASE_URL ?? 'http://localhost:8787';
 
@@ -25,7 +25,10 @@ async function request<T>(path: string, init?: RequestInit & { auth?: boolean })
   });
 
   const result = (await response.json()) as ApiResult<T>;
-  if (!result.ok) throw new Error(result.error.message);
+  if (!result.ok) {
+    if (result.error.code === 'SESSION_EXPIRED') await clearSessionToken();
+    throw new Error(result.error.message);
+  }
   return result.data;
 }
 

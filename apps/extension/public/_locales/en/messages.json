@@ -1,8 +1,8 @@
 {
   "extensionName": {
-    "message": "Booth Trust Layer"
+    "message": "Booth Reviews"
   },
   "extensionDescription": {
-    "message": "Community reviews inline on Booth.pm listings."
+    "message": "Community reviews and ratings for Booth.pm listings."
   }
 }

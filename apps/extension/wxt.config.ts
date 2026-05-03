@@ -5,8 +5,8 @@ export default defineConfig({
     envPrefix: ['VITE_', 'PUBLIC_'],
   }),
   manifest: {
-    name: 'Booth Trust Layer',
-    description: 'Community reviews inline on Booth.pm listings.',
+    name: 'Booth Reviews',
+    description: 'Community reviews and ratings for Booth.pm listings.',
     permissions: ['storage'],
     host_permissions: ['https://booth.pm/*', 'https://*.booth.pm/*'],
     default_locale: 'en',

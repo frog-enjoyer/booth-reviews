@@ -1,27 +1,37 @@
 import { getMe, logout, startDiscordAuth } from '../../src/api/client';
 import { clearSessionToken, getSessionToken, setSessionToken } from '../../src/auth/session';
 
-const status = document.querySelector('#status');
+const stateLoading = document.querySelector<HTMLElement>('#state-loading');
+const stateSignedIn = document.querySelector<HTMLElement>('#state-signed-in');
+const stateSignedOut = document.querySelector<HTMLElement>('#state-signed-out');
+const userName = document.querySelector<HTMLElement>('#user-name');
 const login = document.querySelector<HTMLButtonElement>('#login');
-const loginError = document.querySelector('#login-error');
+const loginError = document.querySelector<HTMLElement>('#login-error');
 const logoutButton = document.querySelector<HTMLButtonElement>('#logout');
 
-async function refreshStatus(): Promise<void> {
-  const token = await getSessionToken();
-  if (!status) return;
+function showState(state: 'loading' | 'signed-in' | 'signed-out'): void {
+  stateLoading?.classList.toggle('hidden', state !== 'loading');
+  stateSignedIn?.classList.toggle('hidden', state !== 'signed-in');
+  stateSignedOut?.classList.toggle('hidden', state !== 'signed-out');
+}
 
+async function refreshStatus(): Promise<void> {
+  showState('loading');
+  if (loginError) loginError.textContent = '';
+
+  const token = await getSessionToken();
   if (!token) {
-    status.textContent = 'Not signed in yet.';
+    showState('signed-out');
     return;
   }
 
   try {
     const me = await getMe();
-    status.textContent = `Signed in as ${me.publicName}.`;
-    if (loginError) loginError.textContent = '';
+    if (userName) userName.textContent = me.publicName;
+    showState('signed-in');
   } catch {
-    status.textContent = 'Session expired. Sign in again.';
     await clearSessionToken();
+    showState('signed-out');
   }
 }
 
@@ -40,7 +50,10 @@ login?.addEventListener('click', () => {
 });
 
 function handleAuthMessage(event: MessageEvent): void {
-  if (event.origin === 'chrome-extension://' + browser.runtime.id || event.origin === 'moz-extension://' + browser.runtime.id) {
+  if (
+    event.origin === 'chrome-extension://' + browser.runtime.id ||
+    event.origin === 'moz-extension://' + browser.runtime.id
+  ) {
     return;
   }
   const data = event.data;
